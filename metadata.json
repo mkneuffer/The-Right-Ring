@@ -1,0 +1,5 @@
+{
+  "name": "Copy of The Right Ring - Custom Engagement Ring Builder",
+  "description": "A sophisticated web application that guides users through a multi-step process to design their perfect custom engagement ring. Users can select base rings, stone shapes, metals, bands, and special features. The app includes an API-driven diamond selector and allows users to create an account to save their unique creations.",
+  "requestFramePermissions": []
+}
