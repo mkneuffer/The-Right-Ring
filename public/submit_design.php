@@ -164,6 +164,9 @@ try {
 
     // ── ADMIN EMAIL ──
     $mail->setFrom($_ENV['SMTP_FROM_EMAIL'], $_ENV['SMTP_FROM_NAME']);
+    $mail->addReplyTo($_ENV['SMTP_FROM_EMAIL'], $_ENV['SMTP_FROM_NAME']);
+    $mail->Sender = $_ENV['SMTP_FROM_EMAIL']; // Helps with SPF/Return-Path
+    
     $mail->addAddress('design@therightring.com');
 
     // Handle Attachments
@@ -277,6 +280,10 @@ try {
     if ($shouldSendCustomerEmail) {
         $mail->clearAddresses();
         $mail->clearAttachments(); // Don't send attachments to customer
+        
+        $mail->addReplyTo($_ENV['SMTP_FROM_EMAIL'], $_ENV['SMTP_FROM_NAME']);
+        $mail->Sender = $_ENV['SMTP_FROM_EMAIL'];
+        
         $mail->addAddress($email, $name);
 
         // Payment status badge
