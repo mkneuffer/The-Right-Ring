@@ -49,14 +49,14 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question, selectedVa
                         <div
                             key={option.id}
                             onClick={() => onSelect(option.id)}
-                            className={`cursor-pointer group rounded-lg overflow-hidden transition-all duration-300 transform hover:-translate-y-1 ${isSelected ? 'ring-2 ring-brand shadow-lg' : 'ring-1 ring-gray-200 hover:ring-brand'}`}
+                            className={`cursor-pointer group rounded-lg overflow-hidden transition-all duration-300 transform hover:-translate-y-1 flex flex-col h-full ${isSelected ? 'ring-2 ring-brand shadow-lg' : 'ring-1 ring-gray-200 hover:ring-brand'}`}
                         >
                             {option.imageUrl && (
-                                <div className="aspect-[4/3] sm:aspect-square bg-gray-100">
+                                <div className="aspect-[4/3] sm:aspect-square bg-gray-100 shrink-0">
                                     <img src={option.imageUrl} alt={option.name} className="w-full h-full object-cover" />
                                 </div>
                             )}
-                            <div className={`p-2 sm:p-3 text-center transition-colors duration-300 ${isSelected ? 'bg-brand' : 'bg-white group-hover:bg-gray-50'}`}>
+                            <div className={`p-2 sm:p-3 text-center transition-colors duration-300 flex-grow flex flex-col justify-center ${!option.imageUrl ? 'min-h-[3.5rem] sm:min-h-[4.5rem] py-3 sm:py-4' : ''} ${isSelected ? 'bg-brand' : 'bg-white group-hover:bg-gray-50'}`}>
                                 <h4 className={`font-medium text-sm sm:text-base ${isSelected ? 'text-white' : 'text-[#232429]'}`}>{option.name}</h4>
                                 {option.subtitle && (
                                     <p className={`text-[10px] sm:text-xs mt-0.5 sm:mt-1 ${isSelected ? 'text-blue-100' : 'text-gray-500'}`}>{option.subtitle}</p>
