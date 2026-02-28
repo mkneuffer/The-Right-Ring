@@ -50,6 +50,7 @@ export const Summary: React.FC<SummaryProps> = ({ configuration, onRestart, onEd
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [submitStatus, setSubmitStatus] = useState<{ success: boolean; message: string } | null>(null);
     const [files, setFiles] = useState<File[]>([]);
+    const [isDragging, setIsDragging] = useState(false);
 
     const allQuestionIds = [...QUESTIONS.map(q => q.id), 'diamond'];
 
@@ -107,6 +108,27 @@ export const Summary: React.FC<SummaryProps> = ({ configuration, onRestart, onEd
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
         const { name, value } = e.target;
         setFormData(prev => ({ ...prev, [name]: value }));
+    };
+
+    const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        setIsDragging(true);
+    };
+
+    const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        setIsDragging(false);
+    };
+
+    const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        setIsDragging(false);
+        const droppedFiles = Array.from(e.dataTransfer.files).filter(file => file.type.startsWith('image/'));
+        if (files.length + droppedFiles.length > 5) {
+            alert('Maximum 5 files allowed');
+            return;
+        }
+        setFiles(prev => [...prev, ...droppedFiles]);
     };
 
     const handleSubmit = async (paymentMode: 'deposit' | 'inquiry' | 'confirmation_email', dataOverride?: typeof formData) => {
@@ -421,13 +443,21 @@ export const Summary: React.FC<SummaryProps> = ({ configuration, onRestart, onEd
 
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">Upload Inspiration Photos</label>
-                                    <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md relative hover:border-brand transition-colors bg-gray-50">
-                                        <div className="space-y-1 text-center">
-                                            <svg className="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true">
+                                    <div
+                                        className={`mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-dashed rounded-md relative transition-colors ${isDragging
+                                                ? 'border-brand bg-brand-light bg-opacity-20'
+                                                : 'border-gray-300 hover:border-brand bg-gray-50'
+                                            }`}
+                                        onDragOver={handleDragOver}
+                                        onDragLeave={handleDragLeave}
+                                        onDrop={handleDrop}
+                                    >
+                                        <div className="space-y-1 text-center pointer-events-none">
+                                            <svg className={`mx-auto h-12 w-12 ${isDragging ? 'text-brand' : 'text-gray-400'}`} stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true">
                                                 <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                                             </svg>
-                                            <div className="flex text-sm text-gray-600 justify-center">
-                                                <label htmlFor="file-upload" className="relative cursor-pointer bg-white rounded-md font-medium text-brand hover:text-brand-dark focus-within:outline-none px-1">
+                                            <div className="flex text-sm text-gray-600 justify-center pointer-events-auto">
+                                                <label htmlFor="file-upload" className="relative cursor-pointer rounded-md font-medium text-brand hover:text-brand-dark focus-within:outline-none px-1">
                                                     <span>Upload a file</span>
                                                     <input id="file-upload" name="file-upload" type="file" className="sr-only" multiple accept="image/*" onChange={(e) => {
                                                         const selectedFiles = Array.from(e.target.files || []);

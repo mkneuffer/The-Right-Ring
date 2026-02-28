@@ -30,6 +30,8 @@ export const getDiamonds = async (filter: DiamondFilter = {}): Promise<Diamond[]
     }
 
     return cachedDiamonds.filter(diamond => {
+        // Availability Filter (Only show 'G' = currently available, skip memo)
+        if (diamond.Availability !== 'G') return false;
         // Shape Filter
         if (filter.shape && filter.shape.length > 0) {
             // Normalize shape names for comparison (e.g., "Round" vs "round")
