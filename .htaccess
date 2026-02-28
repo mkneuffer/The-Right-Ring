@@ -1,0 +1,14 @@
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  
+  # If the requested file exists in dist/, serve it
+  RewriteCond %{DOCUMENT_ROOT}/TheRightRing/dist/$1 -f
+  RewriteRule ^(.*)$ dist/$1 [L]
+
+  # If the requested file exists in root (like submit_design.php), serve it
+  RewriteCond %{REQUEST_FILENAME} -f
+  RewriteRule ^ - [L]
+
+  # Otherwise serve index.html from dist
+  RewriteRule ^ dist/index.html [L]
+</IfModule>

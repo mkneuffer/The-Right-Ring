@@ -1,12 +1,14 @@
 export interface Option {
     id: string;
     name: string;
-    imageUrl: string;
+    subtitle?: string;
+    imageUrl?: string;
 }
 
 export interface Question {
     id: string;
     text: string;
+    multiSelect?: boolean;
     options: Option[];
     info?: {
         title: string;
@@ -20,18 +22,28 @@ export interface Question {
 }
 
 export interface RingConfiguration {
-    [questionId: string]: string | null;
+    [questionId: string]: string | string[] | null;
 }
 
 export interface Diamond {
-    id: string;
-    shape: 'round' | 'princess' | 'oval' | 'marquise' | 'pear';
-    carat: number;
-    cut: 'Good' | 'Very Good' | 'Ideal' | 'Super Ideal';
-    color: 'D' | 'E' | 'F' | 'G' | 'H' | 'I';
-    clarity: 'FL' | 'IF' | 'VVS1' | 'VVS2' | 'VS1' | 'VS2';
-    price: number;
-    imageUrl: string;
+    Stock_No: string;
+    Availability: string;
+    Shape: string;
+    Weight: string; // API returns string
+    Color: string;
+    Clarity: string;
+    Cut_Grade: string;
+    Polish: string;
+    Symmetry: string;
+    Fluorescence_Intensity: string;
+    Fluorescence_Color: string;
+    Measurements: string;
+    Lab: string;
+    Rap_Price: string; // API returns string
+    COD_Buy_Price?: string; // API returns string
+    Diamond_Type?: string; // 'Natural Diamond' or 'Lab Grown'
+    ImageLink: string;
+    [key: string]: any; // Allow other properties
 }
 
 export interface User {

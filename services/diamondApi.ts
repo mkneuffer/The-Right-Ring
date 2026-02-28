@@ -1,39 +1,81 @@
-
 import { Diamond } from '../types';
 
-export const MOCK_DIAMONDS: Diamond[] = [
-    // Rounds
-    { id: 'd001', shape: 'round', carat: 1.01, cut: 'Ideal', color: 'F', clarity: 'VS1', price: 8500, imageUrl: 'https://picsum.photos/seed/d001/100/100' },
-    { id: 'd002', shape: 'round', carat: 1.23, cut: 'Super Ideal', color: 'D', clarity: 'VVS2', price: 15000, imageUrl: 'https://picsum.photos/seed/d002/100/100' },
-    { id: 'd003', shape: 'round', carat: 0.90, cut: 'Very Good', color: 'G', clarity: 'VS2', price: 6000, imageUrl: 'https://picsum.photos/seed/d003/100/100' },
-
-    // Princess
-    { id: 'd004', shape: 'princess', carat: 1.05, cut: 'Very Good', color: 'E', clarity: 'VVS1', price: 9200, imageUrl: 'https://picsum.photos/seed/d004/100/100' },
-    { id: 'd005', shape: 'princess', carat: 1.15, cut: 'Ideal', color: 'G', clarity: 'VS1', price: 10500, imageUrl: 'https://picsum.photos/seed/d005/100/100' },
-
-    // Oval
-    { id: 'd006', shape: 'oval', carat: 1.51, cut: 'Ideal', color: 'F', clarity: 'IF', price: 22000, imageUrl: 'https://picsum.photos/seed/d006/100/100' },
-    { id: 'd007', shape: 'oval', carat: 1.30, cut: 'Very Good', color: 'H', clarity: 'VS2', price: 11500, imageUrl: 'https://picsum.photos/seed/d007/100/100' },
-
-    // Marquise
-    { id: 'd008', shape: 'marquise', carat: 1.10, cut: 'Good', color: 'G', clarity: 'VS1', price: 8900, imageUrl: 'https://picsum.photos/seed/d008/100/100' },
-
-    // Pear
-    { id: 'd009', shape: 'pear', carat: 1.42, cut: 'Ideal', color: 'E', clarity: 'VVS2', price: 18000, imageUrl: 'https://picsum.photos/seed/d009/100/100' },
-];
-
-interface DiamondFilters {
-    shape: Diamond['shape'];
+export interface DiamondFilter {
+    shape?: string[];
+    minCarat?: number;
+    maxCarat?: number;
+    minPrice?: number;
+    maxPrice?: number;
+    color?: string[];
+    clarity?: string[];
+    cut?: string[];
+    polish?: string[];
+    symmetry?: string[];
 }
 
-export const fetchDiamonds = (filters: DiamondFilters): Promise<Diamond[]> => {
-    console.log('Fetching diamonds with filters:', filters);
-    return new Promise(resolve => {
-        setTimeout(() => {
-            const filteredDiamonds = MOCK_DIAMONDS.filter(
-                diamond => diamond.shape === filters.shape
-            );
-            resolve(filteredDiamonds);
-        }, 1000); // Simulate network delay
+let cachedDiamonds: Diamond[] = [];
+
+export const getDiamonds = async (filter: DiamondFilter = {}): Promise<Diamond[]> => {
+    if (cachedDiamonds.length === 0) {
+        try {
+            const response = await fetch('/data/diamonds.json');
+            if (!response.ok) {
+                throw new Error('Failed to load diamond data');
+            }
+            cachedDiamonds = await response.json();
+        } catch (error) {
+            console.error('Error loading diamonds:', error);
+            return [];
+        }
+    }
+
+    return cachedDiamonds.filter(diamond => {
+        // Shape Filter
+        if (filter.shape && filter.shape.length > 0) {
+            // Normalize shape names for comparison (e.g., "Round" vs "round")
+            const diamondShape = diamond.Shape.toLowerCase();
+            const hasMatchingShape = filter.shape.some(s => s.toLowerCase() === diamondShape);
+            if (!hasMatchingShape) return false;
+        }
+
+        // Carat Filter
+        const weight = parseFloat(diamond.Weight);
+        if (filter.minCarat !== undefined && weight < filter.minCarat) return false;
+        if (filter.maxCarat !== undefined && weight > filter.maxCarat) return false;
+
+        // Color Filter (D-H)
+        // We only want to show D-H as per requirements, but let's filter by selection
+        if (filter.color && filter.color.length > 0) {
+            if (!filter.color.includes(diamond.Color)) return false;
+        }
+
+        // Clarity Filter
+        if (filter.clarity && filter.clarity.length > 0) {
+            if (!filter.clarity.includes(diamond.Clarity)) return false;
+        }
+
+        // Cut Filter (Only for Round)
+        if (diamond.Shape.toLowerCase() === 'round') {
+            if (filter.cut && filter.cut.length > 0) {
+                // Map API values to our filter values if needed, or assume direct match
+                // API: EX, VG, G, F, P
+                // Filter might be: 'Excellent', 'Very Good'
+                // Let's normalize to short codes for comparison or handle mapping in UI
+                // For now assuming filter passes short codes or full names matching API
+                if (!filter.cut.includes(diamond.Cut_Grade)) return false;
+            }
+        } else {
+            // Polish & Symmetry for non-round
+            if (filter.polish && filter.polish.length > 0) {
+                if (!filter.polish.includes(diamond.Polish)) return false;
+            }
+            if (filter.symmetry && filter.symmetry.length > 0) {
+                if (!filter.symmetry.includes(diamond.Symmetry)) return false;
+            }
+        }
+
+        return true;
     });
 };
+
+export const MOCK_DIAMONDS: Diamond[] = []; // Deprecated

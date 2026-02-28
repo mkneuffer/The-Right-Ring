@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Header } from './components/Header';
 import { ProgressBar } from './components/ProgressBar';
 import { QuestionCard } from './components/QuestionCard';
@@ -7,19 +7,45 @@ import { Summary } from './components/Summary';
 import { InfoModal } from './components/InfoModal';
 import { FORM_STEPS, QUESTIONS } from './constants';
 import { RingConfiguration, Question } from './types';
-import { AuthProvider, useAuth } from './hooks/useAuth';
+import { useCookie } from './hooks/useCookie';
 
 const RingBuilder: React.FC = () => {
-    const [currentStep, setCurrentStep] = useState(0);
-    const [ringConfiguration, setRingConfiguration] = useState<RingConfiguration>({});
+    const [currentStep, setCurrentStep] = useCookie('ringBuilder_currentStep', 0);
+    const [ringConfiguration, setRingConfiguration] = useCookie<RingConfiguration>('ringBuilder_configuration', {});
     const [infoContent, setInfoContent] = useState<Question['info'] | null>(null);
-    const { isAuthenticated } = useAuth();
+
+    useEffect(() => {
+        window.scrollTo(0, 0);
+    }, [currentStep]);
 
     const updateSelection = (questionId: string, optionId: string | null) => {
-        setRingConfiguration(prev => ({
-            ...prev,
-            [questionId]: optionId
-        }));
+        const question = QUESTIONS.find(q => q.id === questionId);
+        const isMultiSelect = question?.multiSelect;
+
+        setRingConfiguration(prev => {
+            if (isMultiSelect && optionId) {
+                const currentSelection = prev[questionId];
+                const currentArray = Array.isArray(currentSelection) ? currentSelection : (currentSelection ? [currentSelection as string] : []);
+
+                if (currentArray.includes(optionId)) {
+                    const newArray = currentArray.filter(id => id !== optionId);
+                    return {
+                        ...prev,
+                        [questionId]: newArray.length > 0 ? newArray : null
+                    };
+                } else {
+                    return {
+                        ...prev,
+                        [questionId]: [...currentArray, optionId]
+                    };
+                }
+            }
+
+            return {
+                ...prev,
+                [questionId]: optionId
+            };
+        });
     };
 
     const handleNext = () => {
@@ -33,7 +59,7 @@ const RingBuilder: React.FC = () => {
             setCurrentStep(currentStep - 1);
         }
     };
-    
+
     const restart = () => {
         setRingConfiguration({});
         setCurrentStep(0);
@@ -46,20 +72,27 @@ const RingBuilder: React.FC = () => {
         return requiredQuestions.some(qId => !ringConfiguration[qId]);
     }, [currentStep, ringConfiguration]);
 
+    const isFormComplete = useMemo(() => {
+        return FORM_STEPS.every(step =>
+            step.requiredQuestions.every(qId => ringConfiguration[qId])
+        );
+    }, [ringConfiguration]);
+
     const renderStepContent = () => {
         if (currentStep >= FORM_STEPS.length) {
-            return <Summary configuration={ringConfiguration} onRestart={restart} />;
+            return <Summary configuration={ringConfiguration} onRestart={restart} onEditStep={(stepIndex) => setCurrentStep(stepIndex)} />;
         }
-        
+
         const stepInfo = FORM_STEPS[currentStep];
         const questionIds = stepInfo.questionIds;
 
         if (stepInfo.component === 'DiamondSelector') {
-            return <DiamondSelector 
-                        stoneShapeId={ringConfiguration['stoneShape'] ?? ''} 
-                        selectedDiamondId={ringConfiguration['diamond'] ?? null}
-                        onSelectDiamond={(diamondId) => updateSelection('diamond', diamondId)}
-                    />;
+            return <DiamondSelector
+                stoneShapeId={ringConfiguration['stoneShape'] ?? ''}
+                selectedDiamondId={ringConfiguration['diamond'] ?? null}
+                onSelectDiamond={(diamondId) => updateSelection('diamond', diamondId)}
+                onNext={handleNext}
+            />;
         }
 
         return (
@@ -89,7 +122,7 @@ const RingBuilder: React.FC = () => {
                     <ProgressBar currentStep={currentStep} totalSteps={FORM_STEPS.length} />
                     <div className="mt-8 md:mt-12">
                         <h2 className="text-4xl md:text-5xl font-bold text-center text-[#232429] mb-2 tracking-wide">
-                           {currentStep < FORM_STEPS.length ? FORM_STEPS[currentStep].title : 'Your Custom Ring'}
+                            {currentStep < FORM_STEPS.length ? FORM_STEPS[currentStep].title : 'Your Custom Ring'}
                         </h2>
                         <p className="text-gray-500 text-center mb-10">
                             {currentStep < FORM_STEPS.length ? FORM_STEPS[currentStep].description : 'Review your masterpiece.'}
@@ -98,8 +131,8 @@ const RingBuilder: React.FC = () => {
                     </div>
                 </div>
             </main>
-            
-            <footer className="sticky bottom-0 left-0 right-0 bg-white/80 backdrop-blur-sm border-t border-gray-200">
+
+            <footer className="sticky bottom-0 left-0 right-0 bg-white/80 backdrop-blur-sm border-t border-gray-200 z-50">
                 <div className="container mx-auto px-4 py-4 max-w-5xl">
                     <div className="flex justify-between items-center">
                         <button
@@ -118,15 +151,21 @@ const RingBuilder: React.FC = () => {
                                 Next
                             </button>
                         )}
-                         {currentStep >= FORM_STEPS.length && (
-                            <div className="text-sm text-gray-500">
-                                {isAuthenticated ? "Your design is saved to your account." : "Create an account to save your design."}
-                            </div>
+                        {isFormComplete && currentStep < FORM_STEPS.length && (
+                            <button
+                                onClick={() => setCurrentStep(FORM_STEPS.length)}
+                                className="ml-4 px-6 py-3 bg-brand text-white font-bold rounded-lg shadow-md hover:bg-brand-dark focus:outline-none focus:ring-2 focus:ring-brand focus:ring-opacity-75 transition-all duration-300 transform hover:scale-105"
+                            >
+                                Finish
+                            </button>
                         )}
+                        <div className="text-sm text-gray-500 hidden md:block">
+                            Your design is automatically saved.
+                        </div>
                     </div>
                 </div>
             </footer>
-            <InfoModal 
+            <InfoModal
                 isOpen={!!infoContent}
                 onClose={() => setInfoContent(null)}
                 info={infoContent}
@@ -136,9 +175,7 @@ const RingBuilder: React.FC = () => {
 };
 
 const App: React.FC = () => (
-    <AuthProvider>
-        <RingBuilder />
-    </AuthProvider>
+    <RingBuilder />
 );
 
 export default App;
