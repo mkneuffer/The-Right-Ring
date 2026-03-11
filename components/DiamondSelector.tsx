@@ -5,6 +5,7 @@ import { DiamondDetailModal } from './DiamondDetailModal';
 import { DualRangeSlider } from './DualRangeSlider';
 
 import { calculateDiamondPrice } from '../utils';
+import { trackDiamondSelect } from '../analytics';
 
 interface DiamondSelectorProps {
     stoneShapeId: string;
@@ -56,6 +57,8 @@ export const DiamondSelector: React.FC<DiamondSelectorProps> = ({ stoneShapeId, 
     // Carat Filter State
     const [caratLimits, setCaratLimits] = useState<[number, number]>([0.5, 6.5]);
     const [caratRange, setCaratRange] = useState<[number, number]>([0.5, 6.5]);
+    const [caratMinText, setCaratMinText] = useState<string>('0.50');
+    const [caratMaxText, setCaratMaxText] = useState<string>('6.50');
 
     // Pagination
     const [visibleCount, setVisibleCount] = useState(20);
@@ -151,26 +154,26 @@ export const DiamondSelector: React.FC<DiamondSelectorProps> = ({ stoneShapeId, 
         setVisibleCount(20); // Reset pagination
     }, [allDiamonds, selectedShape, colorRange, clarityRange, cutRange, polishRange, symmetryRange, priceRange, caratRange, diamondType]);
 
-    // Update price and carat limits when diamond type changes
+    // Update price limits when diamond type changes (but preserve user's range selections)
     useEffect(() => {
         if (allDiamonds.length > 0) {
-            // Recalculate based on potential max value
             const prices = allDiamonds.map(d => calculateDiamondPrice(d));
             const minPrice = Math.min(...prices);
-
-            let currentMax = 58000;
-            // Removed 3x multiplier for Lab
-
-            setPriceLimits([minPrice, currentMax]);
-            setPriceRange([minPrice, currentMax]);
-
-            // Set Carat Limits (Fixed)
+            setPriceLimits([minPrice, 58000]);
             setCaratLimits([0.5, 6.5]);
-            setCaratRange([0.5, 6.5]);
         }
     }, [diamondType, allDiamonds]);
 
     const handleSelectAndClose = (diamondId: string) => {
+        if (viewingDiamond && viewingDiamond.Stock_No === diamondId) {
+            trackDiamondSelect(
+                viewingDiamond.Stock_No,
+                viewingDiamond.Shape ?? '',
+                String(viewingDiamond.Weight ?? ''),
+                viewingDiamond.Diamond_Type ?? 'Natural Diamond',
+                calculateDiamondPrice(viewingDiamond) ?? undefined
+            );
+        }
         onSelectDiamond(diamondId);
         setViewingDiamond(null);
     };
@@ -195,7 +198,7 @@ export const DiamondSelector: React.FC<DiamondSelectorProps> = ({ stoneShapeId, 
                             onSelectDiamond('EXPERT_SELECTION');
                             if (onNext) setTimeout(onNext, 200); // Small delay for visual feedback
                         }}
-                        className={`flex-1 border-2 rounded-xl p-6 flex flex-col justify-center cursor-pointer transition-all shadow-md group relative overflow-hidden ${isExpertSelected
+                        className={`flex-1 border-2 rounded-xl p-3 md:p-6 flex flex-row md:flex-col items-center md:justify-center gap-3 md:gap-0 cursor-pointer transition-all shadow-md group relative overflow-hidden ${isExpertSelected
                             ? 'bg-brand text-white border-brand ring-4 ring-brand/20'
                             : 'bg-white border-brand/30 text-gray-800 hover:border-brand hover:shadow-lg'
                             }`}
@@ -203,28 +206,28 @@ export const DiamondSelector: React.FC<DiamondSelectorProps> = ({ stoneShapeId, 
                         {/* Background decoration */}
                         <div className={`absolute top-0 right-0 w-32 h-32 bg-brand/5 rounded-full -translate-y-1/2 translate-x-1/2 transition-transform ${isExpertSelected ? 'bg-white/10' : ''}`} />
 
-                        <div className="flex items-start gap-4 relative z-10 mb-4">
-                            <div className={`p-3 rounded-full shadow-sm transition-colors shrink-0 ${isExpertSelected ? 'bg-white/20 text-white' : 'bg-brand/10 text-brand'}`}>
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-8 h-8">
+                        <div className="flex items-center gap-3 relative z-10 md:mb-4 shrink-0">
+                            <div className={`p-2 md:p-3 rounded-full shadow-sm transition-colors shrink-0 ${isExpertSelected ? 'bg-white/20 text-white' : 'bg-brand/10 text-brand'}`}>
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 md:w-8 md:h-8">
                                     <path d="M11.645 20.91l-.007-.003-.022-.012a15.247 15.247 0 01-.383-.218 25.18 25.18 0 01-4.244-3.17C4.688 15.36 2.25 12.174 2.25 8.25 2.25 5.322 4.714 3 7.688 3A5.5 5.5 0 0112 5.052 5.5 5.5 0 0116.313 3c2.973 0 5.437 2.322 5.437 5.25 0 3.925-2.438 7.111-4.739 9.256a25.175 25.175 0 01-4.244 3.17 15.247 15.247 0 01-.383.219l-.022.012-.007.004-.003.001a.752.752 0 01-.704 0l-.003-.001z" />
                                 </svg>
                             </div>
-                            <div>
-                                <h3 className={`font-bold text-xl mb-1 ${isExpertSelected ? 'text-white' : 'text-brand-dark'}`}>
-                                    Not sure which diamond to choose?
-                                </h3>
-                                <p className={`text-base ${isExpertSelected ? 'text-white/90' : 'text-gray-600'}`}>
-                                    Let our gem experts curate the perfect diamond options for you.
-                                </p>
-                            </div>
                         </div>
-                        <div className="mt-auto flex justify-end">
-                            <div className={`flex items-center gap-2 font-bold px-4 py-2 rounded-full transition-all w-fit ${isExpertSelected
+                        <div className="relative z-10 flex-1 md:mb-4">
+                            <h3 className={`font-bold text-sm md:text-xl md:mb-1 ${isExpertSelected ? 'text-white' : 'text-brand-dark'}`}>
+                                Not sure which diamond to choose?
+                            </h3>
+                            <p className={`text-xs md:text-base ${isExpertSelected ? 'text-white/90' : 'text-gray-600'}`}>
+                                Let our gem experts curate the perfect diamond options for you.
+                            </p>
+                        </div>
+                        <div className="relative z-10 md:mt-auto flex justify-end shrink-0">
+                            <div className={`flex items-center gap-1 md:gap-2 font-bold px-3 py-1.5 md:px-4 md:py-2 rounded-full text-xs md:text-base transition-all w-fit ${isExpertSelected
                                 ? 'bg-white text-brand'
-                                : 'bg-brand text-white opacity-0 group-hover:opacity-100 translate-x-4 group-hover:translate-x-0'
+                                : 'bg-brand text-white md:opacity-0 md:group-hover:opacity-100 md:translate-x-4 md:group-hover:translate-x-0'
                                 }`}>
-                                {isExpertSelected ? 'Selected' : 'Select Option'}
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5">
+                                {isExpertSelected ? 'Selected' : 'Select'}
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-4 h-4 md:w-5 md:h-5">
                                     {isExpertSelected
                                         ? <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                                         : <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
@@ -240,7 +243,7 @@ export const DiamondSelector: React.FC<DiamondSelectorProps> = ({ stoneShapeId, 
                             onSelectDiamond('CUSTOMER_STONE');
                             if (onNext) setTimeout(onNext, 200);
                         }}
-                        className={`flex-1 border-2 rounded-xl p-6 flex flex-col justify-center cursor-pointer transition-all shadow-md group relative overflow-hidden ${selectedDiamondId === 'CUSTOMER_STONE'
+                        className={`flex-1 border-2 rounded-xl p-3 md:p-6 flex flex-row md:flex-col items-center md:justify-center gap-3 md:gap-0 cursor-pointer transition-all shadow-md group relative overflow-hidden ${selectedDiamondId === 'CUSTOMER_STONE'
                             ? 'bg-brand text-white border-brand ring-4 ring-brand/20'
                             : 'bg-white border-brand/30 text-gray-800 hover:border-brand hover:shadow-lg'
                             }`}
@@ -248,28 +251,28 @@ export const DiamondSelector: React.FC<DiamondSelectorProps> = ({ stoneShapeId, 
                         {/* Background decoration */}
                         <div className={`absolute top-0 right-0 w-32 h-32 bg-brand/5 rounded-full -translate-y-1/2 translate-x-1/2 transition-transform ${selectedDiamondId === 'CUSTOMER_STONE' ? 'bg-white/10' : ''}`} />
 
-                        <div className="flex items-start gap-4 relative z-10 mb-4">
-                            <div className={`p-3 rounded-full shadow-sm transition-colors shrink-0 ${selectedDiamondId === 'CUSTOMER_STONE' ? 'bg-white/20 text-white' : 'bg-brand/10 text-brand'}`}>
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-8 h-8">
+                        <div className="flex items-center gap-3 relative z-10 md:mb-4 shrink-0">
+                            <div className={`p-2 md:p-3 rounded-full shadow-sm transition-colors shrink-0 ${selectedDiamondId === 'CUSTOMER_STONE' ? 'bg-white/20 text-white' : 'bg-brand/10 text-brand'}`}>
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 md:w-8 md:h-8">
                                     <path d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25zM12.75 9a.75.75 0 00-1.5 0v2.25H9a.75.75 0 000 1.5h2.25V15a.75.75 0 001.5 0v-2.25H15a.75.75 0 000-1.5h-2.25V9z" />
                                 </svg>
                             </div>
-                            <div>
-                                <h3 className={`font-bold text-xl mb-1 ${selectedDiamondId === 'CUSTOMER_STONE' ? 'text-white' : 'text-brand-dark'}`}>
-                                    Have your own stone?
-                                </h3>
-                                <p className={`text-base ${selectedDiamondId === 'CUSTOMER_STONE' ? 'text-white/90' : 'text-gray-600'}`}>
-                                    I have a stone I'd like to use for this design.
-                                </p>
-                            </div>
                         </div>
-                        <div className="mt-auto flex justify-end">
-                            <div className={`flex items-center gap-2 font-bold px-4 py-2 rounded-full transition-all w-fit ${selectedDiamondId === 'CUSTOMER_STONE'
+                        <div className="relative z-10 flex-1 md:mb-4">
+                            <h3 className={`font-bold text-sm md:text-xl md:mb-1 ${selectedDiamondId === 'CUSTOMER_STONE' ? 'text-white' : 'text-brand-dark'}`}>
+                                Have your own stone?
+                            </h3>
+                            <p className={`text-xs md:text-base ${selectedDiamondId === 'CUSTOMER_STONE' ? 'text-white/90' : 'text-gray-600'}`}>
+                                I have a stone I'd like to use for this design.
+                            </p>
+                        </div>
+                        <div className="relative z-10 md:mt-auto flex justify-end shrink-0">
+                            <div className={`flex items-center gap-1 md:gap-2 font-bold px-3 py-1.5 md:px-4 md:py-2 rounded-full text-xs md:text-base transition-all w-fit ${selectedDiamondId === 'CUSTOMER_STONE'
                                 ? 'bg-white text-brand'
-                                : 'bg-brand text-white opacity-0 group-hover:opacity-100 translate-x-4 group-hover:translate-x-0'
+                                : 'bg-brand text-white md:opacity-0 md:group-hover:opacity-100 md:translate-x-4 md:group-hover:translate-x-0'
                                 }`}>
-                                {selectedDiamondId === 'CUSTOMER_STONE' ? 'Selected' : 'Select Option'}
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5">
+                                {selectedDiamondId === 'CUSTOMER_STONE' ? 'Selected' : 'Select'}
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-4 h-4 md:w-5 md:h-5">
                                     {selectedDiamondId === 'CUSTOMER_STONE'
                                         ? <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                                         : <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
@@ -351,33 +354,29 @@ export const DiamondSelector: React.FC<DiamondSelectorProps> = ({ stoneShapeId, 
                                 <h4 className="font-semibold mb-2">Carat</h4>
                                 <div className="flex justify-between items-center text-sm text-gray-600 mb-2 gap-2">
                                     <input
-                                        type="number"
-                                        min={caratLimits[0]}
-                                        max={caratRange[1]}
-                                        step="0.01"
-                                        value={caratRange[0]}
-                                        onChange={(e) => {
-                                            const val = e.target.value;
-                                            setCaratRange([val === '' ? 0 : parseFloat(val), caratRange[1]]);
-                                        }}
+                                        type="text"
+                                        inputMode="decimal"
+                                        value={caratMinText}
+                                        onChange={(e) => setCaratMinText(e.target.value)}
                                         onBlur={() => {
-                                            setCaratRange([Math.max(caratLimits[0], Math.min(caratRange[0], caratRange[1])), caratRange[1]]);
+                                            const parsed = parseFloat(caratMinText);
+                                            const clamped = isNaN(parsed) ? caratLimits[0] : Math.max(caratLimits[0], Math.min(parsed, caratRange[1]));
+                                            setCaratRange([clamped, caratRange[1]]);
+                                            setCaratMinText(clamped.toFixed(2));
                                         }}
                                         className="w-20 px-2 py-1 border border-gray-300 rounded text-center focus:outline-none focus:ring-1 focus:ring-brand focus:border-brand"
                                     />
                                     <span className="text-gray-400">-</span>
                                     <input
-                                        type="number"
-                                        min={caratRange[0]}
-                                        max={caratLimits[1]}
-                                        step="0.01"
-                                        value={caratRange[1]}
-                                        onChange={(e) => {
-                                            const val = e.target.value;
-                                            setCaratRange([caratRange[0], val === '' ? 0 : parseFloat(val)]);
-                                        }}
+                                        type="text"
+                                        inputMode="decimal"
+                                        value={caratMaxText}
+                                        onChange={(e) => setCaratMaxText(e.target.value)}
                                         onBlur={() => {
-                                            setCaratRange([caratRange[0], Math.min(caratLimits[1], Math.max(caratRange[1], caratRange[0]))]);
+                                            const parsed = parseFloat(caratMaxText);
+                                            const clamped = isNaN(parsed) ? caratLimits[1] : Math.min(caratLimits[1], Math.max(parsed, caratRange[0]));
+                                            setCaratRange([caratRange[0], clamped]);
+                                            setCaratMaxText(clamped.toFixed(2));
                                         }}
                                         className="w-20 px-2 py-1 border border-gray-300 rounded text-center focus:outline-none focus:ring-1 focus:ring-brand focus:border-brand"
                                     />
@@ -386,7 +385,11 @@ export const DiamondSelector: React.FC<DiamondSelectorProps> = ({ stoneShapeId, 
                                     min={caratLimits[0]}
                                     max={caratLimits[1]}
                                     value={caratRange}
-                                    onChange={setCaratRange}
+                                    onChange={(val) => {
+                                        setCaratRange(val);
+                                        setCaratMinText(val[0].toFixed(2));
+                                        setCaratMaxText(val[1].toFixed(2));
+                                    }}
                                     step={0.01}
                                 />
                             </div>
@@ -551,10 +554,11 @@ export const DiamondSelector: React.FC<DiamondSelectorProps> = ({ stoneShapeId, 
                                         >
                                             <div className="aspect-square bg-gray-100 relative overflow-hidden">
                                                 <img
-                                                    src={diamond.ImageLink || 'https://via.placeholder.com/400x400?text=No+Image'}
+                                                    src={diamond.ImageLink || '/images/diamond-placeholder.svg'}
                                                     alt={`${diamond.Shape} diamond`}
                                                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                                                    onError={(e) => { (e.target as HTMLImageElement).src = 'https://via.placeholder.com/400x400?text=No+Image'; }}
+                                                    loading="lazy"
+                                                    onError={(e) => { (e.target as HTMLImageElement).src = '/images/diamond-placeholder.svg'; }}
                                                 />
                                                 <div className="absolute top-2 right-2 flex flex-col items-end gap-1">
                                                     <div className="bg-white/90 px-2 py-1 rounded text-xs font-bold shadow-sm">

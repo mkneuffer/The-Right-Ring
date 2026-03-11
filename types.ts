@@ -3,6 +3,8 @@ export interface Option {
     name: string;
     subtitle?: string;
     imageUrl?: string;
+    videoUrl?: string;
+    labGrownPrice?: string;
 }
 
 export interface Question {
@@ -43,6 +45,9 @@ export interface Diamond {
     COD_Buy_Price?: string; // API returns string
     Diamond_Type?: string; // 'Natural Diamond' or 'Lab Grown'
     ImageLink: string;
+    VideoLink?: string;
+    Video_HTML?: string;
+    CertificateLink?: string;
     [key: string]: any; // Allow other properties
 }
 

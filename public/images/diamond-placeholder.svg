@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" fill="none">
+  <rect width="400" height="400" fill="#f3f4f6"/>
+  <g transform="translate(200,180)">
+    <!-- Diamond shape -->
+    <polygon points="0,-70 80,-20 50,60 -50,60 -80,-20" fill="#e5e7eb" stroke="#d1d5db" stroke-width="2"/>
+    <!-- Crown facets -->
+    <polygon points="0,-70 80,-20 30,-20" fill="#f9fafb" opacity="0.7"/>
+    <polygon points="0,-70 -80,-20 -30,-20" fill="#d1d5db" opacity="0.5"/>
+    <polygon points="-30,-20 30,-20 0,-70" fill="#e5e7eb" opacity="0.6"/>
+    <!-- Pavilion facets -->
+    <polygon points="30,-20 80,-20 50,60 0,40" fill="#d1d5db" opacity="0.4"/>
+    <polygon points="-30,-20 -80,-20 -50,60 0,40" fill="#f9fafb" opacity="0.5"/>
+    <polygon points="-30,-20 30,-20 0,40" fill="#e5e7eb" opacity="0.3"/>
+    <!-- Shine -->
+    <polygon points="0,-70 30,-20 -10,-25" fill="white" opacity="0.4"/>
+  </g>
+  <text x="200" y="290" text-anchor="middle" font-family="sans-serif" font-size="16" fill="#9ca3af">No Image Available</text>
+</svg>

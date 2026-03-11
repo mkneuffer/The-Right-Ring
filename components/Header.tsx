@@ -7,7 +7,7 @@ export const Header: React.FC = () => {
                 <div className="container mx-auto px-4">
                     <div className="flex justify-center items-center py-4">
                         <a href="https://www.therightring.com/">
-                            <img src="https://framerusercontent.com/images/FHftFuIChaavuwoII685yqNf6A.png" alt="The Right Ring Logo" className="h-32 w-auto hover:opacity-90 transition-opacity" />
+                            <img src="https://framerusercontent.com/images/FHftFuIChaavuwoII685yqNf6A.png" alt="The Right Ring Logo" className="h-20 sm:h-28 md:h-32 w-auto hover:opacity-90 transition-opacity" />
                         </a>
                     </div>
                 </div>

@@ -48,19 +48,40 @@ export const DiamondDetailModal: React.FC<DiamondDetailModalProps> = ({ diamond,
                     </h2>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
                         <div className="bg-gray-100 rounded-lg flex items-center justify-center p-0 overflow-hidden min-h-[200px] md:min-h-[300px] h-full">
-                            {diamond.VideoLink ? (
+                            {diamond.Video_HTML ? (
                                 <iframe
-                                    src={diamond.VideoLink}
+                                    src={diamond.Video_HTML}
                                     title={`${diamond.Shape} diamond video`}
                                     className="w-full h-full min-h-[200px] md:min-h-[300px] border-0"
                                     allowFullScreen
                                 />
+                            ) : diamond.VideoLink && diamond.VideoLink.endsWith('.mp4') ? (
+                                <video
+                                    src={diamond.VideoLink}
+                                    className="w-full h-full min-h-[200px] md:min-h-[300px] object-contain"
+                                    autoPlay
+                                    loop
+                                    muted
+                                    playsInline
+                                    onError={(e) => {
+                                        const video = e.target as HTMLVideoElement;
+                                        const parent = video.parentElement;
+                                        if (parent && diamond.ImageLink) {
+                                            const img = document.createElement('img');
+                                            img.src = diamond.ImageLink;
+                                            img.alt = `${diamond.Shape} diamond`;
+                                            img.className = 'max-w-full h-auto max-h-[400px] object-contain rounded-md p-4';
+                                            img.onerror = () => { img.src = '/images/diamond-placeholder.svg'; };
+                                            parent.replaceChild(img, video);
+                                        }
+                                    }}
+                                />
                             ) : (
                                 <img
-                                    src={diamond.ImageLink || `https://via.placeholder.com/400x400?text=${diamond.Shape}`}
+                                    src={diamond.ImageLink || '/images/diamond-placeholder.svg'}
                                     alt={`${diamond.Shape} diamond`}
                                     className="max-w-full h-auto max-h-[400px] object-contain rounded-md p-4"
-                                    onError={(e) => { (e.target as HTMLImageElement).src = 'https://via.placeholder.com/400x400?text=No+Image'; }}
+                                    onError={(e) => { (e.target as HTMLImageElement).src = '/images/diamond-placeholder.svg'; }}
                                 />
                             )}
                         </div>

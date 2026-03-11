@@ -40,6 +40,7 @@ if (!$input) {
 $name = $input['name'] ?? 'Unknown';
 $email = $input['email'] ?? '';
 $phone = $input['phone'] ?? '';
+$address = $input['address'] ?? '';
 $info = $input['info'] ?? '';
 $design = $input['design'] ?? [];
 $selections = $input['selections'] ?? [];
@@ -54,11 +55,12 @@ if (empty($email)) {
 }
 
 // ── Brand & Style Variables ──
-$brandColor = '#8B7355';
-$brandDark  = '#6B5745';
-$brandLight = '#FAF7F2';
+$brandColor = '#7FB3C9';
+$brandDark  = '#5E9BB5';
+$brandLight = '#DDF0F7';
 $textDark   = '#1a1a2e';
 $textMuted  = '#6b7280';
+$logoUrl    = 'https://framerusercontent.com/images/FHftFuIChaavuwoII685yqNf6A.png';
 $siteUrl    = rtrim($_ENV['SITE_URL'] ?? $_SERVER['SITE_URL'] ?? getenv('SITE_URL') ?? 'https://therightring.com', '/');
 
 $debugInfo = [
@@ -88,12 +90,38 @@ foreach ($selections as $selection) {
     ];
 
     $details = htmlspecialchars($selection['details'] ?? '');
-    $rowBg   = ($rowIndex % 2 === 0) ? '#ffffff' : '#faf9f7';
+    $rowBg   = ($rowIndex % 2 === 0) ? '#ffffff' : '#f5fbff';
+
+    // Inline SVG clipart icons for special question types (base64-encoded for email compatibility)
+    $clipartBox = function(string $svgInner) use ($brandLight, $brandColor): string {
+        $svg = '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80">'
+             . '<rect width="80" height="80" rx="6" fill="' . $brandLight . '"/>'
+             . '<g transform="translate(20,20)" stroke="' . $brandColor . '" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">'
+             . $svgInner
+             . '</g>'
+             . '</svg>';
+        return '<img src="data:image/svg+xml;base64,' . base64_encode($svg) . '" width="80" height="80" alt="" style="width:80px;height:80px;display:block;border:0;" />';
+    };
+
+    $qid = $selection['questionId'] ?? '';
+
+    // Engraving icon (pen/pencil)
+    $engravingPath = '<path d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"/>';
+    // Hidden stone icon (gem)
+    $hiddenStonePath = '<polygon points="12,2 20,8 17,18 7,18 4,8" stroke-width="1.5"/><polygon points="12,2 20,8 12,6 4,8" fill="' . $brandColor . '" stroke="none" opacity="0.3"/><polygon points="12,6 20,8 17,18 7,18 4,8" fill="' . $brandColor . '" stroke="none" opacity="0.15"/>';
+    // Ring size icon (ring/circle)
+    $ringSizePath = '<circle cx="12" cy="12" r="9" stroke-width="1.5"/><circle cx="12" cy="12" r="5" stroke-width="1.5"/>';
 
     $imageHtml = '';
-    if (isset($selection['questionId']) && $selection['questionId'] === 'budget') {
+    if ($qid === 'budget') {
         $imageHtml = '';
-    } else {
+    } elseif ($qid === 'engravingText') {
+        $imageHtml = $clipartBox($engravingPath);
+    } elseif (str_starts_with($qid, 'hiddenStone_')) {
+        $imageHtml = $clipartBox($hiddenStonePath);
+    } elseif ($qid === 'ringSize') {
+        $imageHtml = $clipartBox($ringSizePath);
+    } elseif (!empty($imageUrl)) {
         $imageHtml = "<img src='{$imageUrl}' alt='{$selectionName}' width='80' height='80' style='width:80px;height:80px;object-fit:cover;border-radius:6px;display:block;border:0;' />";
     }
 
@@ -159,8 +187,8 @@ try {
     $mail->SMTPAuth   = true;
     $mail->Username   = $_ENV['SMTP_USERNAME'];
     $mail->Password   = $_ENV['SMTP_PASSWORD'];
-    $mail->SMTPSecure = PHPMailer::ENCRYPTION_SMTPS;
     $mail->Port       = $_ENV['SMTP_PORT'];
+    $mail->SMTPSecure = ($mail->Port == 587) ? PHPMailer::ENCRYPTION_STARTTLS : PHPMailer::ENCRYPTION_SMTPS;
 
     // ── ADMIN EMAIL ──
     $mail->setFrom($_ENV['SMTP_FROM_EMAIL'], $_ENV['SMTP_FROM_NAME']);
@@ -193,11 +221,11 @@ try {
         <title>New Design Submission</title>
         <!--[if mso]><style>table{border-collapse:collapse;}.fallback-font{font-family:Arial,sans-serif;}</style><![endif]-->
     </head>
-    <body style='margin:0;padding:0;background-color:#f4f1ec;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;'>
+    <body style='margin:0;padding:0;background-color:#eaf5fb;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;'>
         <!-- Preheader -->
-        <div style='display:none;max-height:0;overflow:hidden;font-size:1px;line-height:1px;color:#f4f1ec;'>New ring design from {$name} &mdash; {$email} &zwnj;&nbsp;&zwnj;&nbsp;</div>
+        <div style='display:none;max-height:0;overflow:hidden;font-size:1px;line-height:1px;color:#eaf5fb;'>New ring design from {$name} &mdash; {$email} &zwnj;&nbsp;&zwnj;&nbsp;</div>
 
-        <table width='100%' cellpadding='0' cellspacing='0' border='0' role='presentation' style='background-color:#f4f1ec;'>
+        <table width='100%' cellpadding='0' cellspacing='0' border='0' role='presentation' style='background-color:#eaf5fb;'>
             <tr>
                 <td align='center' style='padding:40px 16px;'>
                     <!--[if mso]><table width='600' cellpadding='0' cellspacing='0' border='0' align='center'><tr><td><![endif]-->
@@ -205,9 +233,9 @@ try {
 
                         <!-- Header -->
                         <tr>
-                            <td style='background-color:{$brandDark};padding:36px 30px;text-align:center;'>
-                                <p style='margin:0 0 6px 0;font-family:Georgia,Times,serif;font-size:26px;color:#ffffff;font-weight:bold;'>&#x2726; The Right Ring</p>
-                                <p style='margin:0;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:rgba(255,255,255,0.7);letter-spacing:1.5px;text-transform:uppercase;'>New Design Submission</p>
+                            <td style='background-color:{$brandDark};padding:28px 30px 20px 30px;text-align:center;'>
+                                <img src='{$logoUrl}' alt='The Right Ring' width='160' height='auto' style='display:block;margin:0 auto 8px auto;max-width:160px;height:auto;border:0;' />
+                                <p style='margin:0;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:rgba(255,255,255,0.85);letter-spacing:1.5px;text-transform:uppercase;'>New Design Submission</p>
                             </td>
                         </tr>
 
@@ -221,6 +249,7 @@ try {
                                             <p style='margin:4px 0;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#374151;'><strong>Name:</strong> {$name}</p>
                                             <p style='margin:4px 0;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#374151;'><strong>Email:</strong> <a href='mailto:{$email}' style='color:{$brandColor};'>{$email}</a></p>
                                             <p style='margin:4px 0;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#374151;'><strong>Phone:</strong> {$phone}</p>
+                                            " . ($address ? "<p style='margin:4px 0;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#374151;'><strong>Shipping Address (ring sizer):</strong> {$address}</p>" : "") . "
                                             " . ($info ? "
                                             <table width='100%' cellpadding='0' cellspacing='0' border='0' role='presentation' style='margin-top:12px;'>
                                                 <tr>
@@ -327,11 +356,11 @@ try {
             <title>Your Ring Design</title>
             <!--[if mso]><style>table{border-collapse:collapse;}.fallback-font{font-family:Arial,sans-serif;}</style><![endif]-->
         </head>
-        <body style='margin:0;padding:0;background-color:#f4f1ec;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;'>
+        <body style='margin:0;padding:0;background-color:#eaf5fb;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;'>
             <!-- Preheader -->
-            <div style='display:none;max-height:0;overflow:hidden;font-size:1px;line-height:1px;color:#f4f1ec;'>Your custom ring design summary from The Right Ring &zwnj;&nbsp;&zwnj;&nbsp;</div>
+            <div style='display:none;max-height:0;overflow:hidden;font-size:1px;line-height:1px;color:#eaf5fb;'>Your custom ring design summary from The Right Ring &zwnj;&nbsp;&zwnj;&nbsp;</div>
 
-            <table width='100%' cellpadding='0' cellspacing='0' border='0' role='presentation' style='background-color:#f4f1ec;'>
+            <table width='100%' cellpadding='0' cellspacing='0' border='0' role='presentation' style='background-color:#eaf5fb;'>
                 <tr>
                     <td align='center' style='padding:40px 16px;'>
                         <!--[if mso]><table width='600' cellpadding='0' cellspacing='0' border='0' align='center'><tr><td><![endif]-->
@@ -339,9 +368,9 @@ try {
 
                             <!-- Header -->
                             <tr>
-                                <td style='background-color:{$brandDark};padding:36px 30px;text-align:center;'>
-                                    <p style='margin:0 0 6px 0;font-family:Georgia,Times,serif;font-size:26px;color:#ffffff;font-weight:bold;'>&#x2726; The Right Ring</p>
-                                    <p style='margin:0;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:rgba(255,255,255,0.7);letter-spacing:1.5px;text-transform:uppercase;'>Your Custom Design</p>
+                                <td style='background-color:{$brandDark};padding:28px 30px 20px 30px;text-align:center;'>
+                                    <img src='{$logoUrl}' alt='The Right Ring' width='160' height='auto' style='display:block;margin:0 auto 8px auto;max-width:160px;height:auto;border:0;' />
+                                    <p style='margin:0;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:rgba(255,255,255,0.85);letter-spacing:1.5px;text-transform:uppercase;'>Your Custom Design</p>
                                 </td>
                             </tr>
 
