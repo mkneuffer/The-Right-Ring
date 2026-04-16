@@ -28,6 +28,10 @@ dist-ssr
 # Secrets — google-credentials.json lives here, injected at runtime from GOOGLE_CREDENTIALS_JSON
 Portal/
 
+# Diamond JSON data — generated server-side and stored in Postgres, not committed
+public/data/diamonds.json
+public/data/diamonds-*.json
+
 #Video Files
 *.mp4
 *.mov

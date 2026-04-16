@@ -1,8 +1,10 @@
 <?php
 /**
- * Fetch a single diamond by Stock_No.
- * GET /api/diamond.php?id=12345
+ * GET /api/diamond.php?id=STOCK_NO
+ *
+ * Fetch a single diamond by Stock_No from Postgres.
  */
+
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 
@@ -13,29 +15,63 @@ if ($id === '') {
     exit;
 }
 
-$data_dir = __DIR__ . '/../data';
-$source   = $data_dir . '/diamonds.json';
-
-if (!file_exists($source)) {
+$dsn = getenv('DATABASE_URL');
+if (!$dsn) {
     http_response_code(503);
-    echo json_encode(['error' => 'Diamond data not available']);
+    echo json_encode(['error' => 'Database not configured']);
     exit;
 }
 
-$raw = file_get_contents($source);
-$all = json_decode($raw, true);
-if (!is_array($all)) {
-    http_response_code(500);
-    echo json_encode(['error' => 'Invalid diamond data']);
+try {
+    $pdo = new PDO($dsn, null, null, [
+        PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+    ]);
+} catch (PDOException $e) {
+    http_response_code(503);
+    echo json_encode(['error' => 'Database connection failed']);
     exit;
 }
 
-foreach ($all as $d) {
-    if (($d['Stock_No'] ?? '') === $id) {
-        echo json_encode(['diamond' => $d]);
+try {
+    $stmt = $pdo->prepare("
+        SELECT
+            stock_no               AS \"Stock_No\",
+            availability           AS \"Availability\",
+            shape                  AS \"Shape\",
+            weight::TEXT           AS \"Weight\",
+            color                  AS \"Color\",
+            clarity                AS \"Clarity\",
+            cut_grade              AS \"Cut_Grade\",
+            polish                 AS \"Polish\",
+            symmetry               AS \"Symmetry\",
+            fluorescence_intensity AS \"Fluorescence_Intensity\",
+            fluorescence_color     AS \"Fluorescence_Color\",
+            measurements           AS \"Measurements\",
+            lab                    AS \"Lab\",
+            rap_price::TEXT        AS \"Rap_Price\",
+            cod_buy_price::TEXT    AS \"COD_Buy_Price\",
+            diamond_type           AS \"Diamond_Type\",
+            image_link             AS \"ImageLink\",
+            video_link             AS \"VideoLink\",
+            video_html             AS \"Video_HTML\",
+            certificate_link       AS \"CertificateLink\"
+        FROM diamonds
+        WHERE stock_no = :id
+        LIMIT 1
+    ");
+    $stmt->execute([':id' => $id]);
+    $diamond = $stmt->fetch();
+
+    if (!$diamond) {
+        http_response_code(404);
+        echo json_encode(['error' => 'Diamond not found']);
         exit;
     }
-}
 
-http_response_code(404);
-echo json_encode(['error' => 'Diamond not found']);
+    echo json_encode(['diamond' => $diamond]);
+
+} catch (PDOException $e) {
+    http_response_code(500);
+    echo json_encode(['error' => 'Query failed']);
+}

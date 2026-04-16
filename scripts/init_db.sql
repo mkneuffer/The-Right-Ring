@@ -67,3 +67,50 @@ CREATE TABLE IF NOT EXISTS tokens (
     created_at TIMESTAMPTZ DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_tokens_email ON tokens(email);
+
+-- ── Diamonds ──────────────────────────────────────────────────────────────────
+-- Populated nightly by scripts/fetch_diamonds.cjs via Belgium Diamond API.
+-- All numeric fields stored as NUMERIC for efficient range filtering in SQL.
+CREATE TABLE IF NOT EXISTS diamonds (
+    stock_no               TEXT PRIMARY KEY,
+    availability           TEXT        NOT NULL DEFAULT '',
+    shape                  TEXT        NOT NULL DEFAULT '',
+    weight                 NUMERIC     NOT NULL DEFAULT 0,   -- carats
+    color                  TEXT        NOT NULL DEFAULT '',
+    clarity                TEXT        NOT NULL DEFAULT '',
+    cut_grade              TEXT        NOT NULL DEFAULT '',
+    polish                 TEXT        NOT NULL DEFAULT '',
+    symmetry               TEXT        NOT NULL DEFAULT '',
+    fluorescence_intensity TEXT        NOT NULL DEFAULT '',
+    fluorescence_color     TEXT        NOT NULL DEFAULT '',
+    measurements           TEXT        NOT NULL DEFAULT '',
+    lab                    TEXT        NOT NULL DEFAULT '',
+    rap_price              NUMERIC     NOT NULL DEFAULT 0,
+    cod_buy_price          NUMERIC,                          -- lab grown only
+    diamond_type           TEXT        NOT NULL DEFAULT '',  -- 'Natural Diamond' | 'Lab Grown'
+    image_link             TEXT        NOT NULL DEFAULT '',
+    video_link             TEXT        NOT NULL DEFAULT '',
+    video_html             TEXT        NOT NULL DEFAULT '',
+    certificate_link       TEXT        NOT NULL DEFAULT '',
+    fetched_at             TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Partial index on available stones only (the hot path for every search)
+CREATE INDEX IF NOT EXISTS idx_diamonds_available
+    ON diamonds(shape, diamond_type, weight, color, clarity)
+    WHERE availability IN ('G', 'M');
+
+-- Separate indexes for price-range filtering
+CREATE INDEX IF NOT EXISTS idx_diamonds_rap   ON diamonds(rap_price)   WHERE availability IN ('G', 'M');
+CREATE INDEX IF NOT EXISTS idx_diamonds_cod   ON diamonds(cod_buy_price) WHERE availability IN ('G', 'M') AND cod_buy_price IS NOT NULL;
+
+-- Sync metadata — one row, tracks last fetch attempt
+CREATE TABLE IF NOT EXISTS diamond_sync_log (
+    id          SERIAL PRIMARY KEY,
+    started_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    finished_at TIMESTAMPTZ,
+    status      TEXT NOT NULL DEFAULT 'running',  -- running | success | partial | failed
+    natural_count  INTEGER DEFAULT 0,
+    lab_count      INTEGER DEFAULT 0,
+    error_message  TEXT
+);

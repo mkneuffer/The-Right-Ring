@@ -1,18 +1,25 @@
 <?php
+/**
+ * GET /api/diamonds.php
+ *
+ * Paginated, filtered diamond search backed by Postgres.
+ * All filter parameters mirror DiamondSelector.tsx exactly.
+ */
+
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 
-// ── Constants mirroring DiamondSelector.tsx ─────────────────────────────────
+// ── Ordered lookup tables (index = slider position) ──────────────────────────
 const COLORS     = ['D', 'E', 'F', 'G', 'H'];
 const CLARITIES  = ['FL', 'IF', 'VVS1', 'VVS2', 'VS1', 'VS2', 'SI1'];
 const CUT_GRADES = ['EX', 'VG', 'G', 'F', 'P'];
 const POLISH_SYM = ['EX', 'VG', 'G', 'F', 'P'];
 
-// ── Input params ─────────────────────────────────────────────────────────────
-$shape     = strtolower(trim($_GET['shape'] ?? 'round'));
-$type      = $_GET['type']      ?? 'natural';   // natural | lab | all
-$page      = max(1, (int)($_GET['page']  ?? 1));
-$limit     = min(100, max(1, (int)($_GET['limit'] ?? 20)));
+// ── Input params ──────────────────────────────────────────────────────────────
+$shape = strtolower(trim($_GET['shape'] ?? 'round'));
+$type  = $_GET['type'] ?? 'natural';   // natural | lab | all
+$page  = max(1, (int)($_GET['page']  ?? 1));
+$limit = min(100, max(1, (int)($_GET['limit'] ?? 20)));
 
 $color_min    = (int)($_GET['color_min']    ?? 0);
 $color_max    = (int)($_GET['color_max']    ?? count(COLORS) - 1);
@@ -29,122 +36,173 @@ $price_max    = (float)($_GET['price_max']  ?? 58000);
 $carat_min    = (float)($_GET['carat_min']  ?? 0.5);
 $carat_max    = (float)($_GET['carat_max']  ?? 6.5);
 
-// ── Load data ─────────────────────────────────────────────────────────────────
-$data_dir   = __DIR__ . '/../data';
-$shape_file = $data_dir . "/diamonds-{$shape}.json";
-$fallback   = $data_dir . '/diamonds.json';
-
-$source = file_exists($shape_file) ? $shape_file : $fallback;
-
-if (!file_exists($source)) {
+// ── DB connection ─────────────────────────────────────────────────────────────
+$dsn = getenv('DATABASE_URL');
+if (!$dsn) {
     http_response_code(503);
-    echo json_encode(['error' => 'Diamond data not available']);
+    echo json_encode(['error' => 'Database not configured']);
     exit;
 }
 
-$raw = file_get_contents($source);
-if ($raw === false) {
+try {
+    $pdo = new PDO($dsn, null, null, [
+        PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+    ]);
+} catch (PDOException $e) {
     http_response_code(503);
-    echo json_encode(['error' => 'Failed to read diamond data']);
+    echo json_encode(['error' => 'Database connection failed']);
     exit;
 }
 
-$all = json_decode($raw, true);
-if (!is_array($all)) {
-    http_response_code(500);
-    echo json_encode(['error' => 'Invalid diamond data format']);
+// ── Build WHERE clauses ───────────────────────────────────────────────────────
+$where  = ["availability IN ('G', 'M')", 'shape = :shape'];
+$params = [':shape' => $shape];
+
+// Diamond type
+if ($type === 'natural') {
+    // empty diamond_type treated as natural (matches original JS logic)
+    $where[] = "(diamond_type = 'Natural Diamond' OR diamond_type = '')";
+} elseif ($type === 'lab') {
+    $where[] = "diamond_type = 'Lab Grown'";
+}
+// 'all' → no type filter
+
+// Carat
+$where[]            = 'weight BETWEEN :carat_min AND :carat_max';
+$params[':carat_min'] = $carat_min;
+$params[':carat_max'] = $carat_max;
+
+// Color — translate slider indexes to value list
+$color_vals = array_slice(COLORS, $color_min, $color_max - $color_min + 1);
+if (empty($color_vals)) {
+    echo json_encode(['diamonds' => [], 'total' => 0, 'page' => $page, 'hasMore' => false]);
     exit;
 }
+foreach ($color_vals as $i => $v) {
+    $params[":color_{$i}"] = $v;
+}
+$where[] = 'color IN (' . implode(',', array_map(fn($i) => ":color_{$i}", array_keys($color_vals))) . ')';
 
-// ── Price calculation (mirrors utils.ts: calculateDiamondPrice) ───────────────
-function calculatePrice(array $d): float {
-    $weight = (float)($d['Weight'] ?? 0);
+// Clarity
+$clarity_vals = array_slice(CLARITIES, $clarity_min, $clarity_max - $clarity_min + 1);
+if (empty($clarity_vals)) {
+    echo json_encode(['diamonds' => [], 'total' => 0, 'page' => $page, 'hasMore' => false]);
+    exit;
+}
+foreach ($clarity_vals as $i => $v) {
+    $params[":clarity_{$i}"] = $v;
+}
+$where[] = 'clarity IN (' . implode(',', array_map(fn($i) => ":clarity_{$i}", array_keys($clarity_vals))) . ')';
 
-    if (($d['Diamond_Type'] ?? '') === 'Lab Grown' && !empty($d['COD_Buy_Price'])) {
-        $cod = (float)$d['COD_Buy_Price'];
-        if (is_nan($cod)) return 0;
-
-        $price = $cod * 2;
-        if ($weight >= 3.0) {
-            if ($cod <= 2000) $price += 1600;
-        } elseif ($weight >= 2.5) {
-            $price += 1300;
-        } elseif ($weight >= 2.0) {
-            $price += 1100;
-        } elseif ($weight >= 1.5) {
-            $price += 900;
-        } elseif ($weight >= 1.0) {
-            $price += 700;
-        } elseif ($weight >= 0.5) {
-            $price += 500;
+// Cut (round) / Polish + Symmetry (fancy shapes)
+if ($shape === 'round') {
+    $cut_vals = array_slice(CUT_GRADES, $cut_min, $cut_max - $cut_min + 1);
+    if (!empty($cut_vals)) {
+        foreach ($cut_vals as $i => $v) {
+            $params[":cut_{$i}"] = $v;
         }
-        return $price;
+        $where[] = '(cut_grade = \'\' OR cut_grade IN (' . implode(',', array_map(fn($i) => ":cut_{$i}", array_keys($cut_vals))) . '))';
+    }
+} else {
+    $polish_vals = array_slice(POLISH_SYM, $polish_min, $polish_max - $polish_min + 1);
+    if (!empty($polish_vals)) {
+        foreach ($polish_vals as $i => $v) {
+            $params[":pol_{$i}"] = $v;
+        }
+        $where[] = '(polish = \'\' OR polish IN (' . implode(',', array_map(fn($i) => ":pol_{$i}", array_keys($polish_vals))) . '))';
     }
 
-    // Natural
-    $rap = (int)($d['Rap_Price'] ?? 0);
-    return $rap * $weight;
+    $sym_vals = array_slice(POLISH_SYM, $symmetry_min, $symmetry_max - $symmetry_min + 1);
+    if (!empty($sym_vals)) {
+        foreach ($sym_vals as $i => $v) {
+            $params[":sym_{$i}"] = $v;
+        }
+        $where[] = '(symmetry = \'\' OR symmetry IN (' . implode(',', array_map(fn($i) => ":sym_{$i}", array_keys($sym_vals))) . '))';
+    }
 }
 
-// ── Filter ────────────────────────────────────────────────────────────────────
-$filtered = [];
+// ── Price expression (mirrors utils.ts calculateDiamondPrice exactly) ─────────
+// Lab Grown:  cod_buy_price * 2 + tier markup
+// Natural:    rap_price * weight
+$price_expr = "
+    CASE
+        WHEN diamond_type = 'Lab Grown' AND cod_buy_price IS NOT NULL THEN
+            (cod_buy_price * 2) + CASE
+                WHEN weight >= 3.0 AND cod_buy_price <= 2000 THEN 1600
+                WHEN weight >= 3.0                           THEN 0
+                WHEN weight >= 2.5 THEN 1300
+                WHEN weight >= 2.0 THEN 1100
+                WHEN weight >= 1.5 THEN  900
+                WHEN weight >= 1.0 THEN  700
+                WHEN weight >= 0.5 THEN  500
+                ELSE 0
+            END
+        ELSE rap_price * weight
+    END";
 
-foreach ($all as $d) {
-    // Availability
-    $avail = strtoupper($d['Availability'] ?? '');
-    if ($avail !== 'G' && $avail !== 'M') continue;
+$where[]              = "({$price_expr}) BETWEEN :price_min AND :price_max";
+$params[':price_min']  = $price_min;
+$params[':price_max']  = $price_max;
 
-    // Shape (only relevant when reading the fallback full file)
-    if (!file_exists($shape_file)) {
-        if (strtolower($d['Shape'] ?? '') !== $shape) continue;
+// ── Assemble SQL ──────────────────────────────────────────────────────────────
+$where_sql = implode(' AND ', $where);
+
+$count_sql = "SELECT COUNT(*) FROM diamonds WHERE {$where_sql}";
+
+// Column aliases match the Diamond TypeScript interface (PascalCase / camelCase)
+$data_sql = "
+    SELECT
+        stock_no               AS \"Stock_No\",
+        availability           AS \"Availability\",
+        shape                  AS \"Shape\",
+        weight::TEXT           AS \"Weight\",
+        color                  AS \"Color\",
+        clarity                AS \"Clarity\",
+        cut_grade              AS \"Cut_Grade\",
+        polish                 AS \"Polish\",
+        symmetry               AS \"Symmetry\",
+        fluorescence_intensity AS \"Fluorescence_Intensity\",
+        fluorescence_color     AS \"Fluorescence_Color\",
+        measurements           AS \"Measurements\",
+        lab                    AS \"Lab\",
+        rap_price::TEXT        AS \"Rap_Price\",
+        cod_buy_price::TEXT    AS \"COD_Buy_Price\",
+        diamond_type           AS \"Diamond_Type\",
+        image_link             AS \"ImageLink\",
+        video_link             AS \"VideoLink\",
+        video_html             AS \"Video_HTML\",
+        certificate_link       AS \"CertificateLink\"
+    FROM diamonds
+    WHERE {$where_sql}
+    ORDER BY weight ASC, ({$price_expr}) ASC
+    LIMIT :limit OFFSET :offset
+";
+
+try {
+    // COUNT (no :limit / :offset)
+    $count_stmt = $pdo->prepare($count_sql);
+    $count_stmt->execute($params);
+    $total = (int)$count_stmt->fetchColumn();
+
+    // DATA
+    $data_stmt = $pdo->prepare($data_sql);
+    foreach ($params as $key => $val) {
+        $data_stmt->bindValue($key, $val);
     }
+    $data_stmt->bindValue(':limit',  $limit,               PDO::PARAM_INT);
+    $data_stmt->bindValue(':offset', ($page - 1) * $limit, PDO::PARAM_INT);
+    $data_stmt->execute();
+    $diamonds = $data_stmt->fetchAll();
 
-    // Diamond type — empty/missing type is treated as Natural (matches original JS logic)
-    $dtype = $d['Diamond_Type'] ?? '';
-    if ($type === 'natural' && $dtype !== 'Natural Diamond' && $dtype !== '') continue;
-    if ($type === 'lab'     && $dtype !== 'Lab Grown') continue;
+    echo json_encode([
+        'diamonds' => $diamonds,
+        'total'    => $total,
+        'page'     => $page,
+        'hasMore'  => (($page - 1) * $limit + count($diamonds)) < $total,
+    ]);
 
-    // Carat
-    $weight = (float)($d['Weight'] ?? 0);
-    if ($weight < $carat_min || $weight > $carat_max) continue;
-
-    // Color
-    $ci = array_search($d['Color'] ?? '', COLORS);
-    if ($ci === false) continue;
-    if ($ci < $color_min || $ci > $color_max) continue;
-
-    // Clarity
-    $cli = array_search($d['Clarity'] ?? '', CLARITIES);
-    if ($cli === false) continue;
-    if ($cli < $clarity_min || $cli > $clarity_max) continue;
-
-    // Cut / Polish / Symmetry
-    if ($shape === 'round') {
-        $cuti = array_search($d['Cut_Grade'] ?? '', CUT_GRADES);
-        if ($cuti !== false && ($cuti < $cut_min || $cuti > $cut_max)) continue;
-    } else {
-        $pi = array_search($d['Polish'] ?? '', POLISH_SYM);
-        if ($pi !== false && ($pi < $polish_min || $pi > $polish_max)) continue;
-
-        $si = array_search($d['Symmetry'] ?? '', POLISH_SYM);
-        if ($si !== false && ($si < $symmetry_min || $si > $symmetry_max)) continue;
-    }
-
-    // Price
-    $price = calculatePrice($d);
-    if ($price < $price_min || $price > $price_max) continue;
-
-    $filtered[] = $d;
+} catch (PDOException $e) {
+    http_response_code(500);
+    echo json_encode(['error' => 'Query failed']);
 }
-
-// ── Paginate ──────────────────────────────────────────────────────────────────
-$total  = count($filtered);
-$offset = ($page - 1) * $limit;
-$page_items = array_slice($filtered, $offset, $limit);
-
-echo json_encode([
-    'diamonds' => $page_items,
-    'total'    => $total,
-    'page'     => $page,
-    'hasMore'  => ($offset + $limit) < $total,
-]);

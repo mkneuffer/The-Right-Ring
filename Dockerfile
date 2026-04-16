@@ -1,7 +1,6 @@
 # ── Stage 1: Build ────────────────────────────────────────────────────────────
 FROM node:20-slim AS node-builder
 WORKDIR /build
-# Copy only what's needed for the JS build
 COPY package*.json ./
 RUN npm ci --include=dev
 COPY . .
@@ -32,33 +31,27 @@ RUN docker-php-ext-install zip intl opcache pdo_pgsql
 
 # PHP config
 RUN echo "upload_max_filesize = 100M" >> /usr/local/etc/php/conf.d/uploads.ini \
-    && echo "post_max_size = 105M" >> /usr/local/etc/php/conf.d/uploads.ini \
-    && echo "memory_limit = 256M" >> /usr/local/etc/php/conf.d/uploads.ini
+    && echo "post_max_size = 105M"    >> /usr/local/etc/php/conf.d/uploads.ini \
+    && echo "memory_limit = 256M"     >> /usr/local/etc/php/conf.d/uploads.ini
 
 WORKDIR /app
 
-# Copy built frontend from node-builder (only dist/ — no node_modules)
+# Frontend build output
 COPY --from=node-builder /build/dist ./dist
 
-# Copy PHP vendor from composer-builder (only vendor/ — no source)
+# PHP vendor
 COPY --from=composer-builder /build/vendor ./vendor
 
-# Copy runtime files needed by PHP (scripts for cron, portal-lib, Portal creds dir)
+# Runtime files
 COPY scripts/ ./scripts/
 COPY portal-lib/ ./portal-lib/
 COPY composer.json ./
-# Portal/google-credentials.json is written at runtime from GOOGLE_CREDENTIALS_JSON env var in start.sh
 RUN mkdir -p /app/Portal
 
-# Seed diamond data: staged inside the image at /app/seed-data, copied into
-# the /app/public/data volume on first boot by start.sh. Kept separate so the
-# volume mount doesn't mask it.
-COPY public/data/ /app/seed-data/
-
-# Create empty .env (phpdotenv won't throw; Railway injects real env vars)
+# Empty .env so phpdotenv doesn't throw; Railway injects real env vars
 RUN touch /app/.env
 
-# Node modules needed only for the cron diamond fetch script
+# Node modules for the cron diamond-fetch script (pg driver + dotenv)
 COPY package*.json ./
 RUN npm ci --omit=dev --ignore-scripts
 
