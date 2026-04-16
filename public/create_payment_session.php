@@ -4,9 +4,16 @@ use Stripe\Checkout\Session;
 
 require __DIR__ . '/../vendor/autoload.php';
 
-// Load .env
+// Load .env (may be empty on Railway — env vars come from system environment)
 $dotenv = Dotenv\Dotenv::createImmutable(__DIR__ . '/../');
-$dotenv->load();
+$dotenv->safeLoad();
+
+// Sync system environment variables into $_ENV so Railway-injected vars are accessible
+foreach (getenv() as $key => $value) {
+    if (!isset($_ENV[$key])) {
+        $_ENV[$key] = $value;
+    }
+}
 
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Headers: Content-Type");
