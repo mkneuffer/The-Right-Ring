@@ -32,6 +32,9 @@ Portal/
 public/data/diamonds.json
 public/data/diamonds-*.json
 
+# Images and videos — served from a Railway volume, not baked into the Docker image
+public/images/
+
 #Video Files
 *.mp4
 *.mov
