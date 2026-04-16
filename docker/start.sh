@@ -18,6 +18,9 @@ crontab /etc/cron.d/diamond-fetch
 # Start cron daemon
 service cron start
 
+# Test nginx config before starting
+nginx -t
+
 # Start PHP-FPM in background
 php-fpm -D
 
