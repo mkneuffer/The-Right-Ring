@@ -1,11 +1,6 @@
 #!/bin/bash
 set -e
 
-# Ensure the images volume mount point exists and is writable by www-data
-# Railway volume should be mounted at /app/public/images
-mkdir -p /app/public/images
-chown -R www-data:www-data /app/public/images
-
 # Decode Google credentials JSON from env var (base64 encoded)
 if [ -n "$GOOGLE_CREDENTIALS_JSON" ]; then
     mkdir -p /app/Portal
