@@ -68,13 +68,18 @@ if (empty($turnstileToken)) {
     exit();
 }
 $turnstileSecret = $_ENV['TURNSTILE_SECRET_KEY'] ?? '';
-$verifyResponse = file_get_contents('https://challenges.cloudflare.com/turnstile/v0/siteverify', false, stream_context_create([
+$verifyResponse = @file_get_contents('https://challenges.cloudflare.com/turnstile/v0/siteverify', false, stream_context_create([
     'http' => [
         'method'  => 'POST',
         'header'  => 'Content-Type: application/x-www-form-urlencoded',
         'content' => http_build_query(['secret' => $turnstileSecret, 'response' => $turnstileToken]),
+        'timeout' => 8,
     ]
 ]));
+if ($verifyResponse === false) {
+    echo json_encode(['success' => false, 'message' => 'Verification service timeout. Please try again.']);
+    exit();
+}
 $verifyData = json_decode($verifyResponse, true);
 if (!($verifyData['success'] ?? false)) {
     echo json_encode(['success' => false, 'message' => 'Verification failed. Please try again.']);
@@ -217,6 +222,8 @@ try {
     $mail->Password   = $_ENV['SMTP_PASSWORD'];
     $mail->Port       = $_ENV['SMTP_PORT'];
     $mail->SMTPSecure = ($mail->Port == 587) ? PHPMailer::ENCRYPTION_STARTTLS : PHPMailer::ENCRYPTION_SMTPS;
+    $mail->Timeout    = 15;
+    $mail->SMTPKeepAlive = true;
 
     // ── ADMIN EMAIL ──
     $mail->setFrom($_ENV['SMTP_FROM_EMAIL'], $_ENV['SMTP_FROM_NAME']);
@@ -556,6 +563,25 @@ try {
         }
     }
 
+    // ── Respond to the browser NOW; finish slow work after the response ──
+    // The two customer-facing emails above are already sent. Everything below
+    // (Drive uploads, Sheets, Mailchimp, portal invite) is non-blocking from
+    // the user's perspective — they'd rather see the success screen than wait.
+    if (function_exists('fastcgi_finish_request')) {
+        if ($paymentMode === 'confirmation_email') {
+            echo json_encode(['success' => true, 'message' => 'Design submitted! Payment required for customer confirmation.', 'debug' => $debugInfo]);
+        } else {
+            echo json_encode(['success' => true, 'message' => 'Design submitted! Check your email.', 'debug' => $debugInfo]);
+        }
+        fastcgi_finish_request();
+        // Give the background phase more runway; client is already disconnected.
+        @ignore_user_abort(true);
+        @set_time_limit(120);
+        $__responseAlreadySent = true;
+    } else {
+        $__responseAlreadySent = false;
+    }
+
     // ── Portal Record Creation ─────────────────────────────────────────────
     // Run BEFORE echoing JSON response so it completes even if client disconnects
     try {
@@ -768,20 +794,31 @@ try {
             CURLOPT_POSTFIELDS     => $mcData,
             CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
             CURLOPT_USERPWD        => "anystring:{$mcApiKey}",
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_TIMEOUT        => 10,
         ]);
         $mcResponse = curl_exec($mcCh);
+        if ($mcResponse === false) {
+            error_log("Mailchimp curl error: " . curl_error($mcCh));
+        }
         curl_close($mcCh);
         error_log("Mailchimp response: " . $mcResponse);
     }
 
-    // ── Send JSON response ─────────────────────────────────────────────────
-    if ($paymentMode === 'confirmation_email') {
-        echo json_encode(['success' => true, 'message' => 'Design submitted! Payment required for customer confirmation.', 'debug' => $debugInfo]);
-    } else {
-        echo json_encode(['success' => true, 'message' => 'Design submitted! Check your email.', 'debug' => $debugInfo]);
+    // ── Send JSON response (only if we didn't already flush via fastcgi_finish_request) ──
+    if (empty($__responseAlreadySent)) {
+        if ($paymentMode === 'confirmation_email') {
+            echo json_encode(['success' => true, 'message' => 'Design submitted! Payment required for customer confirmation.', 'debug' => $debugInfo]);
+        } else {
+            echo json_encode(['success' => true, 'message' => 'Design submitted! Check your email.', 'debug' => $debugInfo]);
+        }
     }
 
 } catch (Exception $e) {
-    echo json_encode(['success' => false, 'message' => "Message could not be sent. Mailer Error: {$mail->ErrorInfo}"]);
+    if (empty($__responseAlreadySent)) {
+        echo json_encode(['success' => false, 'message' => "Message could not be sent. Mailer Error: {$mail->ErrorInfo}"]);
+    } else {
+        error_log("submit_design.php post-response error: " . $e->getMessage());
+    }
 }
 ?>
