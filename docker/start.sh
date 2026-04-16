@@ -10,6 +10,12 @@ if [ -n "$GOOGLE_CREDENTIALS_JSON" ]; then
     echo "$GOOGLE_CREDENTIALS_JSON" | base64 -d > /app/Portal/google-credentials.json
 fi
 
+# Pre-create cron log and make it writable by www-data (cron runs as that user)
+mkdir -p /var/log
+touch /var/log/cron_fetch.log
+chown www-data:www-data /var/log/cron_fetch.log
+chmod 0664 /var/log/cron_fetch.log
+
 # Set up cron job for diamond data refresh (runs daily at 3am)
 echo "0 3 * * * www-data cd /app && node scripts/fetch_diamonds.cjs >> /var/log/cron_fetch.log 2>&1" > /etc/cron.d/diamond-fetch
 chmod 0644 /etc/cron.d/diamond-fetch

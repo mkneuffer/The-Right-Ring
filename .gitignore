@@ -25,6 +25,9 @@ dist-ssr
 
 .env
 
+# Secrets — google-credentials.json lives here, injected at runtime from GOOGLE_CREDENTIALS_JSON
+Portal/
+
 #Video Files
 *.mp4
 *.mov

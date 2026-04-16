@@ -24,10 +24,11 @@ RUN apt-get update && apt-get install -y \
     cron \
     libzip-dev \
     libicu-dev \
+    libpq-dev \
     unzip \
     && rm -rf /var/lib/apt/lists/*
 
-RUN docker-php-ext-install zip intl opcache
+RUN docker-php-ext-install zip intl opcache pdo_pgsql
 
 # PHP config
 RUN echo "upload_max_filesize = 100M" >> /usr/local/etc/php/conf.d/uploads.ini \

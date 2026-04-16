@@ -32,7 +32,8 @@ $brandLight = '#EAF5FB';
 $textDark   = '#232429';
 $textMuted  = '#6B7280';
 $logoUrl    = 'https://framerusercontent.com/images/FHftFuIChaavuwoII685yqNf6A.png';
-$siteUrl    = 'https://therightring.com';
+$siteUrl    = rtrim($_ENV['SITE_URL'] ?? getenv('SITE_URL') ?: 'https://therightring.com', '/');
+$portalUrl  = rtrim($_ENV['PORTAL_URL'] ?? getenv('PORTAL_URL') ?: 'https://portal.therightring.com', '/');
 $name       = 'Jane Smith';
 
 $selectionsHtml = "
@@ -153,7 +154,7 @@ try {
 try {
     $mail = makeMailer();
     $mail->Subject = '[TEST] Email 2a — Estimate (deposit not paid)';
-    $magicLink = 'https://portal.therightring.com';
+    $magicLink = $portalUrl;
     $totalFmt  = '$12,650';
     $lineRows  = "
       <tr><td style='padding:11px 0;font-size:15px;color:#374151;border-bottom:1px solid #f0f2f5;'>Ring Setting (Wright Style)</td><td style='padding:11px 0;font-size:15px;color:#232429;font-weight:600;text-align:right;border-bottom:1px solid #f0f2f5;'>\$2,300</td></tr>
@@ -215,7 +216,7 @@ try {
 try {
     $mail = makeMailer();
     $mail->Subject = '[TEST] Email 2b — Estimate (deposit already paid)';
-    $magicLink = 'https://portal.therightring.com';
+    $magicLink = $portalUrl;
     $totalFmt  = '$12,650';
     $lineRows  = "
       <tr><td style='padding:11px 0;font-size:15px;color:#374151;border-bottom:1px solid #f0f2f5;'>Ring Setting (Wright Style)</td><td style='padding:11px 0;font-size:15px;color:#232429;font-weight:600;text-align:right;border-bottom:1px solid #f0f2f5;'>\$2,300</td></tr>

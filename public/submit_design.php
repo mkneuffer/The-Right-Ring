@@ -81,7 +81,8 @@ $brandLight = '#DDF0F7';
 $textDark   = '#1a1a2e';
 $textMuted  = '#6b7280';
 $logoUrl    = 'https://framerusercontent.com/images/FHftFuIChaavuwoII685yqNf6A.png';
-$siteUrl    = 'https://build.therightring.com';
+$siteUrl    = rtrim($_ENV['SITE_URL'] ?? getenv('SITE_URL') ?: 'https://build.therightring.com', '/');
+$portalUrl  = rtrim($_ENV['PORTAL_URL'] ?? getenv('PORTAL_URL') ?: 'https://portal.therightring.com', '/');
 
 $debugInfo = [
     'env_site_url'    => $_ENV['SITE_URL'] ?? 'NOT SET',
@@ -552,7 +553,7 @@ try {
     // Run BEFORE echoing JSON response so it completes even if client disconnects
     try {
         if (!empty($_ENV['PORTAL_SHEET_ID'])) {
-            require_once __DIR__ . '/../portal-lib/sheets.php';
+            require_once __DIR__ . '/../portal-lib/store.php';
 
             $orderId = 'TRR-' . strtoupper(substr(uniqid(), -6));
             $phone4  = substr(preg_replace('/\D/', '', $phone), -4);
@@ -601,11 +602,16 @@ try {
                         $filename = $mediaId . '_' . preg_replace('/[^a-zA-Z0-9._-]/', '_', $origName);
                         $driveFileId  = '';
                         $thumbnailUrl = '';
-                        // Try portal uploads dir (EC2), fall back to /tmp (Railway)
-                        $ec2UploadDir = __DIR__ . '/../../portal/uploads/';
-                        $uploadDir = is_dir($ec2UploadDir) || @mkdir($ec2UploadDir, 0777, true)
-                            ? $ec2UploadDir
-                            : sys_get_temp_dir() . '/';
+                        // Resolve uploads dir: Railway volume (/app/uploads) → EC2 sibling → /tmp
+                        $railwayUploadDir = '/app/uploads/';
+                        $ec2UploadDir     = __DIR__ . '/../../portal/uploads/';
+                        if (is_dir($railwayUploadDir) && is_writable($railwayUploadDir)) {
+                            $uploadDir = $railwayUploadDir;
+                        } elseif (is_dir($ec2UploadDir) || @mkdir($ec2UploadDir, 0777, true)) {
+                            $uploadDir = $ec2UploadDir;
+                        } else {
+                            $uploadDir = sys_get_temp_dir() . '/';
+                        }
                         $localPath = $uploadDir . $filename;
                         if (copy($tmpName, $localPath)) {
                             $thumbnailUrl = strpos($uploadDir, sys_get_temp_dir()) === false
@@ -656,13 +662,13 @@ try {
                   </p>
                   <table style='width:100%;background:#fff;border-radius:10px;padding:20px;margin-bottom:20px;'>
                     <tr><td style='font-size:13px;color:#6b7280;padding-bottom:4px;'>Login</td>
-                        <td style='font-size:14px;font-weight:600;'><a href='https://portal.therightring.com' style='color:#7FB3C9;'>portal.therightring.com</a></td></tr>
+                        <td style='font-size:14px;font-weight:600;'><a href='{$portalUrl}' style='color:#7FB3C9;'>{$portalUrl}</a></td></tr>
                     <tr><td style='font-size:13px;color:#6b7280;padding-bottom:4px;'>Email</td>
                         <td style='font-size:14px;font-weight:600;'>{$email}</td></tr>
                     <tr><td style='font-size:13px;color:#6b7280;'>First login</td>
                         <td style='font-size:14px;font-weight:600;'>Use your email + last 4 digits of your phone ({$phone4})</td></tr>
                   </table>
-                  <a href='https://portal.therightring.com'
+                  <a href='{$portalUrl}'
                      style='display:inline-block;background:#A6D1E6;color:#232429;padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;'>
                     View My Ring Project
                   </a>
