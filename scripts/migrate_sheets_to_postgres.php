@@ -106,7 +106,7 @@ foreach ($rows as $r) {
         ':tn'  => $r[7]  ?? '', ':ec'  => $r[8]  ?? '', ':pu'  => $r[9]  ?? '',
         ':te'  => num($r[10] ?? null), ':dp'  => num($r[11] ?? null),
         ':pdd' => num($r[12] ?? null), ':fpd' => num($r[13] ?? null),
-        ':fpe' => bool01($r[14] ?? null),
+        ':fpe' => bool01($r[14] ?? null) ? 't' : 'f',
         ':apt' => num($r[15] ?? null),
         ':ca'  => !empty($r[16]) ? $r[16] : null,
         ':ua'  => !empty($r[17]) ? $r[17] : null,
@@ -154,7 +154,7 @@ foreach ($rows as $r) {
         ':t' => $r[0],
         ':e' => $r[1] ?? '',
         ':x' => !empty($r[2]) ? $r[2] : date('Y-m-d H:i:s', strtotime('+48 hours')),
-        ':u' => bool01($r[3] ?? null),
+        ':u' => bool01($r[3] ?? null) ? 't' : 'f',
     ]);
     $counts['tokens']++;
 }

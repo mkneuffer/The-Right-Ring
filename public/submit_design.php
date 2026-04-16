@@ -686,9 +686,10 @@ try {
         error_log("Portal record creation error: " . $portalErr->getMessage());
     }
 
-    // Google Sheets Integration
+    // Google Sheets Integration — skipped entirely when Postgres is the storage backend (Railway).
+    $sheetsBackend = strtolower($_ENV['STORAGE_BACKEND'] ?? getenv('STORAGE_BACKEND') ?: '');
     try {
-        if (!empty($_ENV['GOOGLE_SHEET_ID'])) {
+        if (!empty($_ENV['GOOGLE_SHEET_ID']) && $sheetsBackend !== 'postgres' && $sheetsBackend !== 'pgsql') {
             $credentialsPath = __DIR__ . '/../google-credentials.json';
             if (file_exists($credentialsPath)) {
                 $client = new \Google_Client();
