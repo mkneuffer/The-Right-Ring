@@ -54,6 +54,26 @@ if (empty($email)) {
     exit();
 }
 
+// ── Turnstile Verification ──
+$turnstileToken = $input['turnstileToken'] ?? '';
+if (empty($turnstileToken)) {
+    echo json_encode(['success' => false, 'message' => 'Human verification required.']);
+    exit();
+}
+$turnstileSecret = $_ENV['TURNSTILE_SECRET_KEY'] ?? '';
+$verifyResponse = file_get_contents('https://challenges.cloudflare.com/turnstile/v0/siteverify', false, stream_context_create([
+    'http' => [
+        'method'  => 'POST',
+        'header'  => 'Content-Type: application/x-www-form-urlencoded',
+        'content' => http_build_query(['secret' => $turnstileSecret, 'response' => $turnstileToken]),
+    ]
+]));
+$verifyData = json_decode($verifyResponse, true);
+if (!($verifyData['success'] ?? false)) {
+    echo json_encode(['success' => false, 'message' => 'Verification failed. Please try again.']);
+    exit();
+}
+
 // ── Brand & Style Variables ──
 $brandColor = '#7FB3C9';
 $brandDark  = '#5E9BB5';
@@ -61,7 +81,7 @@ $brandLight = '#DDF0F7';
 $textDark   = '#1a1a2e';
 $textMuted  = '#6b7280';
 $logoUrl    = 'https://framerusercontent.com/images/FHftFuIChaavuwoII685yqNf6A.png';
-$siteUrl    = rtrim($_ENV['SITE_URL'] ?? $_SERVER['SITE_URL'] ?? getenv('SITE_URL') ?? 'https://therightring.com', '/');
+$siteUrl    = 'https://build.therightring.com';
 
 $debugInfo = [
     'env_site_url'    => $_ENV['SITE_URL'] ?? 'NOT SET',
@@ -342,10 +362,95 @@ try {
         }
 
         $greetingText = ($paymentMode === 'confirmation_email')
-            ? "Thank you for your payment! Your custom design process has officially begun. Here's a summary of your beautiful design:"
-            : "Thank you for designing your custom ring with us! Here is a summary of your beautiful design:";
+            ? "Thank you for your payment! Your custom design process has officially begun &mdash; we&rsquo;ll start sourcing stones and working on your 3D model right away. Here&rsquo;s a summary of your beautiful design:"
+            : "Thank you for designing your custom ring with us! We&rsquo;re reviewing your selections now and will have a proper estimate ready for you soon. Here&rsquo;s a summary of your beautiful design:";
 
-        $mail->Subject = "Your Custom Ring Design &mdash; The Right Ring";
+        if ($paymentMode === 'confirmation_email') {
+            $stepsHtml = "
+                                                <table width='100%' cellpadding='0' cellspacing='0' border='0' role='presentation' style='margin-bottom:12px;'>
+                                                    <tr>
+                                                        <td width='32' valign='top' style='width:32px;'>
+                                                            <table cellpadding='0' cellspacing='0' border='0' role='presentation'>
+                                                                <tr><td style='width:28px;height:28px;background-color:{$brandColor};border-radius:50%;text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#ffffff;font-weight:bold;line-height:28px;'>1</td></tr>
+                                                            </table>
+                                                        </td>
+                                                        <td valign='top' style='padding-left:12px;'>
+                                                            <p style='margin:0 0 2px 0;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:{$textDark};font-weight:bold;'>Your Interactive 3D Model is Built</p>
+                                                            <p style='margin:0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:{$textMuted};line-height:1.5;'>We&rsquo;ll build you a 3D model based on your selections and your further input so you can visualize how your ring will look and approve it before anything is made.</p>
+                                                        </td>
+                                                    </tr>
+                                                </table>
+                                                <table width='100%' cellpadding='0' cellspacing='0' border='0' role='presentation' style='margin-bottom:12px;'>
+                                                    <tr>
+                                                        <td width='32' valign='top' style='width:32px;'>
+                                                            <table cellpadding='0' cellspacing='0' border='0' role='presentation'>
+                                                                <tr><td style='width:28px;height:28px;background-color:{$brandColor};border-radius:50%;text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#ffffff;font-weight:bold;line-height:28px;'>2</td></tr>
+                                                            </table>
+                                                        </td>
+                                                        <td valign='top' style='padding-left:12px;'>
+                                                            <p style='margin:0 0 2px 0;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:{$textDark};font-weight:bold;'>We Source Your Stone</p>
+                                                            <p style='margin:0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:{$textMuted};line-height:1.5;'>We&rsquo;ll start looking for the perfect stone based on your selections and budget.</p>
+                                                        </td>
+                                                    </tr>
+                                                </table>
+                                                <table width='100%' cellpadding='0' cellspacing='0' border='0' role='presentation'>
+                                                    <tr>
+                                                        <td width='32' valign='top' style='width:32px;'>
+                                                            <table cellpadding='0' cellspacing='0' border='0' role='presentation'>
+                                                                <tr><td style='width:28px;height:28px;background-color:{$brandColor};border-radius:50%;text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#ffffff;font-weight:bold;line-height:28px;'>3</td></tr>
+                                                            </table>
+                                                        </td>
+                                                        <td valign='top' style='padding-left:12px;'>
+                                                            <p style='margin:0 0 2px 0;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:{$textDark};font-weight:bold;'>You Approve &amp; We Craft It</p>
+                                                            <p style='margin:0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:{$textMuted};line-height:1.5;'>Once you approve the design, our jewelers will bring the ring to life, right here in Rhode Island.</p>
+                                                        </td>
+                                                    </tr>
+                                                </table>";
+        } else {
+            $stepsHtml = "
+                                                <table width='100%' cellpadding='0' cellspacing='0' border='0' role='presentation' style='margin-bottom:12px;'>
+                                                    <tr>
+                                                        <td width='32' valign='top' style='width:32px;'>
+                                                            <table cellpadding='0' cellspacing='0' border='0' role='presentation'>
+                                                                <tr><td style='width:28px;height:28px;background-color:{$brandColor};border-radius:50%;text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#ffffff;font-weight:bold;line-height:28px;'>1</td></tr>
+                                                            </table>
+                                                        </td>
+                                                        <td valign='top' style='padding-left:12px;'>
+                                                            <p style='margin:0 0 2px 0;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:{$textDark};font-weight:bold;'>We Review Your Design</p>
+                                                            <p style='margin:0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:{$textMuted};line-height:1.5;'>We look over your selections, source the right stones, and put together a detailed price estimate tailored to your design.</p>
+                                                        </td>
+                                                    </tr>
+                                                </table>
+                                                <table width='100%' cellpadding='0' cellspacing='0' border='0' role='presentation' style='margin-bottom:12px;'>
+                                                    <tr>
+                                                        <td width='32' valign='top' style='width:32px;'>
+                                                            <table cellpadding='0' cellspacing='0' border='0' role='presentation'>
+                                                                <tr><td style='width:28px;height:28px;background-color:{$brandColor};border-radius:50%;text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#ffffff;font-weight:bold;line-height:28px;'>2</td></tr>
+                                                            </table>
+                                                        </td>
+                                                        <td valign='top' style='padding-left:12px;'>
+                                                            <p style='margin:0 0 2px 0;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:{$textDark};font-weight:bold;'>You Receive Your Estimate</p>
+                                                            <p style='margin:0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:{$textMuted};line-height:1.5;'>We&rsquo;ll send you a personalized price breakdown and reach out to answer any questions before you commit to anything.</p>
+                                                        </td>
+                                                    </tr>
+                                                </table>
+                                                <table width='100%' cellpadding='0' cellspacing='0' border='0' role='presentation'>
+                                                    <tr>
+                                                        <td width='32' valign='top' style='width:32px;'>
+                                                            <table cellpadding='0' cellspacing='0' border='0' role='presentation'>
+                                                                <tr><td style='width:28px;height:28px;background-color:{$brandColor};border-radius:50%;text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#ffffff;font-weight:bold;line-height:28px;'>3</td></tr>
+                                                            </table>
+                                                        </td>
+                                                        <td valign='top' style='padding-left:12px;'>
+                                                            <p style='margin:0 0 2px 0;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:{$textDark};font-weight:bold;'>Start With a $250 Deposit</p>
+                                                            <p style='margin:0 0 6px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:{$textMuted};line-height:1.5;'>When you&rsquo;re ready to move forward, a $250 design deposit kicks things off. We&rsquo;ll build your interactive 3D model and work with you through every detail until it&rsquo;s exactly right.</p>
+                                                            <p style='margin:0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:{$textMuted};line-height:1.5;font-style:italic;'>Your deposit simply starts the process &mdash; no design is locked in. We&rsquo;ll work with you through every revision until it&rsquo;s exactly right.</p>
+                                                        </td>
+                                                    </tr>
+                                                </table>";
+        }
+
+        $mail->Subject = "Your Custom Ring Design - The Right Ring";
         $mail->Body    = "
         <!DOCTYPE html>
         <html xmlns='http://www.w3.org/1999/xhtml'>
@@ -401,50 +506,7 @@ try {
                                             <td style='padding:24px;'>
                                                 <p style='margin:0 0 16px 0;font-family:Georgia,Times,serif;font-size:18px;color:{$textDark};font-weight:bold;'>What Happens Next?</p>
 
-                                                <!-- Step 1 -->
-                                                <table width='100%' cellpadding='0' cellspacing='0' border='0' role='presentation' style='margin-bottom:12px;'>
-                                                    <tr>
-                                                        <td width='32' valign='top' style='width:32px;'>
-                                                            <table cellpadding='0' cellspacing='0' border='0' role='presentation'>
-                                                                <tr><td style='width:28px;height:28px;background-color:{$brandColor};border-radius:50%;text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#ffffff;font-weight:bold;line-height:28px;'>1</td></tr>
-                                                            </table>
-                                                        </td>
-                                                        <td valign='top' style='padding-left:12px;'>
-                                                            <p style='margin:0 0 2px 0;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:{$textDark};font-weight:bold;'>Design Review</p>
-                                                            <p style='margin:0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:{$textMuted};line-height:1.5;'>Our team reviews your selections within 1&ndash;2 business days.</p>
-                                                        </td>
-                                                    </tr>
-                                                </table>
-
-                                                <!-- Step 2 -->
-                                                <table width='100%' cellpadding='0' cellspacing='0' border='0' role='presentation' style='margin-bottom:12px;'>
-                                                    <tr>
-                                                        <td width='32' valign='top' style='width:32px;'>
-                                                            <table cellpadding='0' cellspacing='0' border='0' role='presentation'>
-                                                                <tr><td style='width:28px;height:28px;background-color:{$brandColor};border-radius:50%;text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#ffffff;font-weight:bold;line-height:28px;'>2</td></tr>
-                                                            </table>
-                                                        </td>
-                                                        <td valign='top' style='padding-left:12px;'>
-                                                            <p style='margin:0 0 2px 0;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:{$textDark};font-weight:bold;'>Consultation &amp; Quote</p>
-                                                            <p style='margin:0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:{$textMuted};line-height:1.5;'>We&rsquo;ll reach out with a detailed quote and design consultation.</p>
-                                                        </td>
-                                                    </tr>
-                                                </table>
-
-                                                <!-- Step 3 -->
-                                                <table width='100%' cellpadding='0' cellspacing='0' border='0' role='presentation'>
-                                                    <tr>
-                                                        <td width='32' valign='top' style='width:32px;'>
-                                                            <table cellpadding='0' cellspacing='0' border='0' role='presentation'>
-                                                                <tr><td style='width:28px;height:28px;background-color:{$brandColor};border-radius:50%;text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#ffffff;font-weight:bold;line-height:28px;'>3</td></tr>
-                                                            </table>
-                                                        </td>
-                                                        <td valign='top' style='padding-left:12px;'>
-                                                            <p style='margin:0 0 2px 0;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:{$textDark};font-weight:bold;'>Begin Crafting</p>
-                                                            <p style='margin:0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:{$textMuted};line-height:1.5;'>Once approved, our artisans begin bringing your dream ring to life.</p>
-                                                        </td>
-                                                    </tr>
-                                                </table>
+                                                {$stepsHtml}
 
                                             </td>
                                         </tr>
@@ -481,14 +543,141 @@ try {
         try {
             $mail->send();
             error_log("Customer email sent successfully to: $email");
-            echo json_encode(['success' => true, 'message' => 'Design submitted! Check your email.', 'debug' => $debugInfo]);
         } catch (Exception $customerEmailError) {
             error_log("Customer email failed: " . $customerEmailError->getMessage());
-            echo json_encode(['success' => true, 'message' => 'Design submitted! Admin notified but customer confirmation email failed.', 'debug' => $debugInfo]);
         }
-    } else {
-        // Did not send customer email (Deposit Mode)
-        echo json_encode(['success' => true, 'message' => 'Design submitted! Payment required for customer confirmation.', 'debug' => $debugInfo]);
+    }
+
+    // ── Portal Record Creation ─────────────────────────────────────────────
+    // Run BEFORE echoing JSON response so it completes even if client disconnects
+    try {
+        if (!empty($_ENV['PORTAL_SHEET_ID'])) {
+            require_once __DIR__ . '/../portal-lib/sheets.php';
+
+            $orderId = 'TRR-' . strtoupper(substr(uniqid(), -6));
+            $phone4  = substr(preg_replace('/\D/', '', $phone), -4);
+
+            error_log("Portal: creating order $orderId for $email (mode=$paymentMode, phone4=$phone4)");
+
+            $depositAmount = ($paymentMode === 'inquiry') ? 0 : 250;
+            $orderOk = createOrder([
+                'order_id'          => $orderId,
+                'customer_name'     => $name,
+                'email'             => $email,
+                'phone'             => $phone,
+                'address'           => $address,
+                'ring_choices_json' => json_encode($selections),
+                'total_estimate'    => 0,
+                'deposit_paid'      => $depositAmount,
+                'amount_paid_total' => $depositAmount,
+            ]);
+
+            error_log("Portal: createOrder returned " . ($orderOk ? 'true' : 'false') . " for order $orderId");
+
+            if (!$orderOk) {
+                error_log("Portal: createOrder failed for $email — skipping user/invite creation to avoid orphaned records");
+            } else {
+
+            $userOk = createUser([
+                'email'         => $email,
+                'phone_last4'   => $phone4,
+                'full_name'     => $name,
+                'order_id'      => $orderId,
+                'password_hash' => '',
+            ]);
+
+            error_log("Portal: createUser returned " . ($userOk ? 'true' : 'false') . " for $email");
+
+            // Upload inspiration photos to portal media
+            if (!empty($_FILES['attachments']['name'][0])) {
+                require_once __DIR__ . '/../portal-lib/drive.php';
+                $fileCount = count($_FILES['attachments']['name']);
+                for ($i = 0; $i < $fileCount; $i++) {
+                    if ($_FILES['attachments']['error'][$i] === UPLOAD_ERR_OK) {
+                        $tmpName  = $_FILES['attachments']['tmp_name'][$i];
+                        $origName = basename($_FILES['attachments']['name'][$i]);
+                        $mimeType = mime_content_type($tmpName);
+                        $mediaId  = uniqid('media_', true);
+                        $filename = $mediaId . '_' . preg_replace('/[^a-zA-Z0-9._-]/', '_', $origName);
+                        $driveFileId  = '';
+                        $thumbnailUrl = '';
+                        // Try portal uploads dir (EC2), fall back to /tmp (Railway)
+                        $ec2UploadDir = __DIR__ . '/../../portal/uploads/';
+                        $uploadDir = is_dir($ec2UploadDir) || @mkdir($ec2UploadDir, 0777, true)
+                            ? $ec2UploadDir
+                            : sys_get_temp_dir() . '/';
+                        $localPath = $uploadDir . $filename;
+                        if (copy($tmpName, $localPath)) {
+                            $thumbnailUrl = strpos($uploadDir, sys_get_temp_dir()) === false
+                                ? '/uploads/' . $filename
+                                : '';
+                        }
+                        // Upload to Google Drive regardless of local copy
+                        $driveResult = uploadToDrive($tmpName, $filename, $mimeType);
+                        if ($driveResult) {
+                            $driveFileId  = $driveResult['drive_file_id'];
+                            $thumbnailUrl = $driveResult['thumbnail_url'];
+                        }
+                        addMediaRecord([
+                            'media_id'      => $mediaId,
+                            'order_id'      => $orderId,
+                            'uploader'      => 'customer',
+                            'filename'      => $origName,
+                            'drive_file_id' => $driveFileId,
+                            'thumbnail_url' => $thumbnailUrl,
+                            'caption'       => 'Inspiration photo (submitted with design)',
+                        ]);
+                        error_log("Portal media: uploaded $origName for order $orderId, driveId=$driveFileId");
+                    }
+                }
+            }
+
+            // Send portal invite email
+            try {
+                $portalMail = new PHPMailer(true);
+                $portalMail->isSMTP();
+                $portalMail->Host       = $_ENV['SMTP_HOST'];
+                $portalMail->SMTPAuth   = true;
+                $portalMail->Username   = $_ENV['SMTP_USERNAME'];
+                $portalMail->Password   = $_ENV['SMTP_PASSWORD'];
+                $portalMail->SMTPSecure = 'tls';
+                $portalMail->Port       = (int)$_ENV['SMTP_PORT'];
+                $portalMail->setFrom($_ENV['SMTP_FROM_EMAIL'], $_ENV['SMTP_FROM_NAME']);
+                $portalMail->addAddress($email, $name);
+                $portalMail->Subject = 'Your Ring Project Portal Is Ready - The Right Ring';
+                $portalMail->isHTML(true);
+                $portalMail->Body = "
+                <div style='font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#F7F7F7;padding:32px 24px;border-radius:12px;'>
+                  <img src='{$logoUrl}' style='height:44px;margin-bottom:24px;' alt='The Right Ring'>
+                  <h2 style='font-size:20px;color:#232429;margin:0 0 12px;'>Your Ring Project Portal Is Ready</h2>
+                  <p style='color:#6b7280;font-size:14px;line-height:1.6;margin-bottom:20px;'>
+                    Hi {$name}, your custom ring project has been set up in our project portal.<br>
+                    You can log in to track progress, view your selections, and make upcoming payments.
+                  </p>
+                  <table style='width:100%;background:#fff;border-radius:10px;padding:20px;margin-bottom:20px;'>
+                    <tr><td style='font-size:13px;color:#6b7280;padding-bottom:4px;'>Login</td>
+                        <td style='font-size:14px;font-weight:600;'><a href='https://portal.therightring.com' style='color:#7FB3C9;'>portal.therightring.com</a></td></tr>
+                    <tr><td style='font-size:13px;color:#6b7280;padding-bottom:4px;'>Email</td>
+                        <td style='font-size:14px;font-weight:600;'>{$email}</td></tr>
+                    <tr><td style='font-size:13px;color:#6b7280;'>First login</td>
+                        <td style='font-size:14px;font-weight:600;'>Use your email + last 4 digits of your phone ({$phone4})</td></tr>
+                  </table>
+                  <a href='https://portal.therightring.com'
+                     style='display:inline-block;background:#A6D1E6;color:#232429;padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;'>
+                    View My Ring Project
+                  </a>
+                  <p style='color:#9ca3af;font-size:12px;margin-top:24px;'>The Right Ring Team &nbsp;|&nbsp; <a href='mailto:design@therightring.com' style='color:#A6D1E6;'>design@therightring.com</a></p>
+                </div>";
+                $portalMail->send();
+                error_log("Portal invite email sent to: $email (order: $orderId)");
+            } catch (Exception $portalMailErr) {
+                error_log("Portal invite email failed: " . $portalMailErr->getMessage());
+            }
+
+            } // end if ($orderOk)
+        }
+    } catch (Exception $portalErr) {
+        error_log("Portal record creation error: " . $portalErr->getMessage());
     }
 
     // Google Sheets Integration
@@ -540,6 +729,42 @@ try {
         }
     } catch (Exception $sheetError) {
         error_log("Google Sheets Error: " . $sheetError->getMessage());
+    }
+
+    // ── Mailchimp: add subscriber ──────────────────────────────────────────
+    if (!empty($email)) {
+        $mcApiKey    = $_ENV['MAILCHIMP_API_KEY'] ?? getenv('MAILCHIMP_API_KEY');
+        $mcListId    = $_ENV['MAILCHIMP_LIST_ID'] ?? getenv('MAILCHIMP_LIST_ID');
+        $mcServer    = $_ENV['MAILCHIMP_SERVER']  ?? getenv('MAILCHIMP_SERVER');
+        $nameParts   = explode(' ', trim($name), 2);
+        $mcFirstName = $nameParts[0] ?? '';
+        $mcLastName  = $nameParts[1] ?? '';
+        $mcData = json_encode([
+            'email_address' => $email,
+            'status'        => 'subscribed',
+            'merge_fields'  => [
+                'FNAME' => $mcFirstName,
+                'LNAME' => $mcLastName,
+            ],
+        ]);
+        $mcCh = curl_init("https://{$mcServer}.api.mailchimp.com/3.0/lists/{$mcListId}/members");
+        curl_setopt_array($mcCh, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => $mcData,
+            CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
+            CURLOPT_USERPWD        => "anystring:{$mcApiKey}",
+        ]);
+        $mcResponse = curl_exec($mcCh);
+        curl_close($mcCh);
+        error_log("Mailchimp response: " . $mcResponse);
+    }
+
+    // ── Send JSON response ─────────────────────────────────────────────────
+    if ($paymentMode === 'confirmation_email') {
+        echo json_encode(['success' => true, 'message' => 'Design submitted! Payment required for customer confirmation.', 'debug' => $debugInfo]);
+    } else {
+        echo json_encode(['success' => true, 'message' => 'Design submitted! Check your email.', 'debug' => $debugInfo]);
     }
 
 } catch (Exception $e) {
