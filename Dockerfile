@@ -45,8 +45,9 @@ COPY --from=composer-builder /build/vendor ./vendor
 # Copy runtime files needed by PHP (scripts for cron, portal-lib, Portal creds dir)
 COPY scripts/ ./scripts/
 COPY portal-lib/ ./portal-lib/
-COPY Portal/ ./Portal/
 COPY composer.json ./
+# Portal/google-credentials.json is written at runtime from GOOGLE_CREDENTIALS_JSON env var in start.sh
+RUN mkdir -p /app/Portal
 
 # Create empty .env (phpdotenv won't throw; Railway injects real env vars)
 RUN touch /app/.env
