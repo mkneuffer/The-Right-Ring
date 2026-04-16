@@ -1,11 +1,13 @@
-# ── Stage 1: Build ────────────────────────────────────────────────────────────
+# ── Stage 1: Node build + prod node_modules ───────────────────────────────────
 FROM node:20-slim AS node-builder
 WORKDIR /build
 COPY package*.json ./
+# Install all deps for the build, then prune to prod-only for the runtime copy
 RUN npm ci --include=dev
 COPY . .
-RUN npm run build
-# dist/ is now populated with compiled assets + PHP files
+RUN npm run build \
+ && npm prune --omit=dev --ignore-scripts
+# Outputs: dist/  node_modules/ (prod-only, no sharp, no devDeps)
 
 # ── Stage 2: PHP deps ─────────────────────────────────────────────────────────
 FROM composer:2 AS composer-builder
@@ -16,23 +18,27 @@ RUN composer install --no-dev --optimize-autoloader --no-scripts
 # ── Stage 3: Runtime ──────────────────────────────────────────────────────────
 FROM php:8.3-fpm
 
+# Install system deps — nodejs/npm removed; we copy the binary from node-builder
 RUN apt-get update && apt-get install -y \
     nginx \
-    nodejs \
-    npm \
     cron \
     libzip-dev \
-    libicu-dev \
     libpq-dev \
     unzip \
     && rm -rf /var/lib/apt/lists/*
 
-RUN docker-php-ext-install zip intl opcache pdo_pgsql
+# Only the extensions actually used: zip (composer), opcache (perf), pdo_pgsql (DB)
+RUN docker-php-ext-install zip opcache pdo_pgsql
 
 # PHP config
 RUN echo "upload_max_filesize = 100M" >> /usr/local/etc/php/conf.d/uploads.ini \
     && echo "post_max_size = 105M"    >> /usr/local/etc/php/conf.d/uploads.ini \
     && echo "memory_limit = 256M"     >> /usr/local/etc/php/conf.d/uploads.ini
+
+# Copy Node runtime from node-builder — avoids apt-installing nodejs/npm (~1-2 min)
+COPY --from=node-builder /usr/local/bin/node /usr/local/bin/node
+COPY --from=node-builder /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm
 
 WORKDIR /app
 
@@ -42,6 +48,9 @@ COPY --from=node-builder /build/dist ./dist
 # PHP vendor
 COPY --from=composer-builder /build/vendor ./vendor
 
+# Prod node_modules (already pruned in node-builder — no second npm ci needed)
+COPY --from=node-builder /build/node_modules ./node_modules
+
 # Runtime files
 COPY scripts/ ./scripts/
 COPY portal-lib/ ./portal-lib/
@@ -50,10 +59,6 @@ RUN mkdir -p /app/Portal
 
 # Empty .env so phpdotenv doesn't throw; Railway injects real env vars
 RUN touch /app/.env
-
-# Node modules for the cron diamond-fetch script (pg driver + dotenv)
-COPY package*.json ./
-RUN npm ci --omit=dev --ignore-scripts
 
 # Nginx + startup
 COPY docker/nginx.conf /etc/nginx/nginx.conf
