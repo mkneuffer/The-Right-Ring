@@ -7,6 +7,7 @@ interface DiamondDetailModalProps {
     diamond: Diamond | null;
     onClose: () => void;
     onSelect: (diamondId: string) => void;
+    onNext?: (selectedDiamondId?: string) => void;
 }
 
 const CloseIcon: React.FC<{ className?: string }> = ({ className }) => (
@@ -16,7 +17,7 @@ const CloseIcon: React.FC<{ className?: string }> = ({ className }) => (
 );
 
 
-export const DiamondDetailModal: React.FC<DiamondDetailModalProps> = ({ diamond, onClose, onSelect }) => {
+export const DiamondDetailModal: React.FC<DiamondDetailModalProps> = ({ diamond, onClose, onSelect, onNext }) => {
     if (!diamond) return null;
 
     const price = calculateDiamondPrice(diamond);
@@ -47,18 +48,18 @@ export const DiamondDetailModal: React.FC<DiamondDetailModalProps> = ({ diamond,
                         {weight.toFixed(2)}-Carat {diamond.Shape} Diamond
                     </h2>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
-                        <div className="bg-gray-100 rounded-lg flex items-center justify-center p-0 overflow-hidden min-h-[200px] md:min-h-[300px] h-full">
+                        <div className="bg-gray-100 rounded-lg flex items-center justify-center p-0 overflow-hidden min-h-[360px] md:min-h-[420px] h-full">
                             {diamond.Video_HTML ? (
                                 <iframe
                                     src={diamond.Video_HTML}
                                     title={`${diamond.Shape} diamond video`}
-                                    className="w-full h-full min-h-[200px] md:min-h-[300px] border-0"
+                                    className="w-full h-full min-h-[360px] md:min-h-[420px] border-0"
                                     allowFullScreen
                                 />
                             ) : diamond.VideoLink && diamond.VideoLink.endsWith('.mp4') ? (
                                 <video
                                     src={diamond.VideoLink}
-                                    className="w-full h-full min-h-[200px] md:min-h-[300px] object-contain"
+                                    className="w-full h-full min-h-[360px] md:min-h-[420px] object-contain"
                                     autoPlay
                                     loop
                                     muted
@@ -107,7 +108,12 @@ export const DiamondDetailModal: React.FC<DiamondDetailModalProps> = ({ diamond,
                             )}
 
                             <button
-                                onClick={() => onSelect(diamond.Stock_No)}
+                                onClick={() => {
+                                    onSelect(diamond.Stock_No);
+                                    if (window.innerWidth < 1024 && onNext) {
+                                        setTimeout(() => onNext(diamond.Stock_No), 200);
+                                    }
+                                }}
                                 className="w-full mt-8 bg-brand text-white font-bold py-3 px-4 rounded-lg shadow-md hover:bg-brand-dark focus:outline-none focus:ring-2 focus:ring-brand focus:ring-opacity-75 transition-all duration-300"
                             >
                                 Select this Diamond

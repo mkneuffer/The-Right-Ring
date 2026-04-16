@@ -1,83 +1,79 @@
 import { Diamond } from '../types';
 
-export interface DiamondFilter {
-    shape?: string[];
-    minCarat?: number;
-    maxCarat?: number;
-    minPrice?: number;
-    maxPrice?: number;
-    color?: string[];
-    clarity?: string[];
-    cut?: string[];
-    polish?: string[];
-    symmetry?: string[];
+export interface DiamondPageResult {
+    diamonds: Diamond[];
+    total: number;
+    page: number;
+    hasMore: boolean;
 }
 
-let cachedDiamonds: Diamond[] = [];
+export interface PagedFilter {
+    shape: string;           // required - lowercase
+    type?: 'natural' | 'lab' | 'all';
+    colorRange?: [number, number];
+    clarityRange?: [number, number];
+    cutRange?: [number, number];
+    polishRange?: [number, number];
+    symmetryRange?: [number, number];
+    priceRange?: [number, number];
+    caratRange?: [number, number];
+}
 
-export const getDiamonds = async (filter: DiamondFilter = {}): Promise<Diamond[]> => {
-    if (cachedDiamonds.length === 0) {
-        try {
-            const response = await fetch('/data/diamonds.json');
-            if (!response.ok) {
-                throw new Error('Failed to load diamond data');
-            }
-            cachedDiamonds = await response.json();
-        } catch (error) {
-            console.error('Error loading diamonds:', error);
-            return [];
-        }
+export const getDiamondsPage = async (
+    filter: PagedFilter,
+    page: number = 1,
+    limit: number = 20
+): Promise<DiamondPageResult> => {
+    const params = new URLSearchParams();
+    params.set('shape', filter.shape.toLowerCase());
+    params.set('type',  filter.type ?? 'natural');
+    params.set('page',  String(page));
+    params.set('limit', String(limit));
+
+    if (filter.colorRange) {
+        params.set('color_min', String(filter.colorRange[0]));
+        params.set('color_max', String(filter.colorRange[1]));
+    }
+    if (filter.clarityRange) {
+        params.set('clarity_min', String(filter.clarityRange[0]));
+        params.set('clarity_max', String(filter.clarityRange[1]));
+    }
+    if (filter.cutRange) {
+        params.set('cut_min', String(filter.cutRange[0]));
+        params.set('cut_max', String(filter.cutRange[1]));
+    }
+    if (filter.polishRange) {
+        params.set('polish_min', String(filter.polishRange[0]));
+        params.set('polish_max', String(filter.polishRange[1]));
+    }
+    if (filter.symmetryRange) {
+        params.set('symmetry_min', String(filter.symmetryRange[0]));
+        params.set('symmetry_max', String(filter.symmetryRange[1]));
+    }
+    if (filter.priceRange) {
+        params.set('price_min', String(filter.priceRange[0]));
+        params.set('price_max', String(filter.priceRange[1]));
+    }
+    if (filter.caratRange) {
+        params.set('carat_min', String(filter.caratRange[0]));
+        params.set('carat_max', String(filter.caratRange[1]));
     }
 
-    return cachedDiamonds.filter(diamond => {
-        // Availability Filter (Only show 'G' = currently available, skip memo)
-        if (diamond.Availability !== 'G') return false;
-        // Shape Filter
-        if (filter.shape && filter.shape.length > 0) {
-            // Normalize shape names for comparison (e.g., "Round" vs "round")
-            const diamondShape = diamond.Shape.toLowerCase();
-            const hasMatchingShape = filter.shape.some(s => s.toLowerCase() === diamondShape);
-            if (!hasMatchingShape) return false;
-        }
-
-        // Carat Filter
-        const weight = parseFloat(diamond.Weight);
-        if (filter.minCarat !== undefined && weight < filter.minCarat) return false;
-        if (filter.maxCarat !== undefined && weight > filter.maxCarat) return false;
-
-        // Color Filter (D-H)
-        // We only want to show D-H as per requirements, but let's filter by selection
-        if (filter.color && filter.color.length > 0) {
-            if (!filter.color.includes(diamond.Color)) return false;
-        }
-
-        // Clarity Filter
-        if (filter.clarity && filter.clarity.length > 0) {
-            if (!filter.clarity.includes(diamond.Clarity)) return false;
-        }
-
-        // Cut Filter (Only for Round)
-        if (diamond.Shape.toLowerCase() === 'round') {
-            if (filter.cut && filter.cut.length > 0) {
-                // Map API values to our filter values if needed, or assume direct match
-                // API: EX, VG, G, F, P
-                // Filter might be: 'Excellent', 'Very Good'
-                // Let's normalize to short codes for comparison or handle mapping in UI
-                // For now assuming filter passes short codes or full names matching API
-                if (!filter.cut.includes(diamond.Cut_Grade)) return false;
-            }
-        } else {
-            // Polish & Symmetry for non-round
-            if (filter.polish && filter.polish.length > 0) {
-                if (!filter.polish.includes(diamond.Polish)) return false;
-            }
-            if (filter.symmetry && filter.symmetry.length > 0) {
-                if (!filter.symmetry.includes(diamond.Symmetry)) return false;
-            }
-        }
-
-        return true;
-    });
+    const response = await fetch(`/api/diamonds.php?${params}`);
+    if (!response.ok) {
+        throw new Error('Failed to load diamond data');
+    }
+    return await response.json();
 };
 
-export const MOCK_DIAMONDS: Diamond[] = []; // Deprecated
+export const getDiamondById = async (stockNo: string): Promise<Diamond | null> => {
+    try {
+        const response = await fetch(`/api/diamond.php?id=${encodeURIComponent(stockNo)}`);
+        if (!response.ok) return null;
+        const data = await response.json();
+        return data.diamond ?? null;
+    } catch (error) {
+        console.error('Error loading diamond by ID:', error);
+        return null;
+    }
+};

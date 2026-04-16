@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && cp public/submit_design.php dist/submit_design.php && cp public/create_payment_session.php dist/create_payment_session.php && cp public/test_env.php dist/test_env.php && cp public/.htaccess dist/.htaccess",
     "preview": "vite preview",
     "fetch-diamonds": "node scripts/fetch_diamonds.cjs"
   },

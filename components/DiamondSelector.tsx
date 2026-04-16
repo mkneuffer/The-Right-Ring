@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Diamond } from '../types';
-import { getDiamonds, DiamondFilter } from '../services/diamondApi';
+import { getDiamondsPage, PagedFilter } from '../services/diamondApi';
 import { DiamondDetailModal } from './DiamondDetailModal';
 import { DualRangeSlider } from './DualRangeSlider';
 
@@ -10,8 +10,8 @@ import { trackDiamondSelect } from '../analytics';
 interface DiamondSelectorProps {
     stoneShapeId: string;
     selectedDiamondId: string | null;
-    onSelectDiamond: (diamondId: string) => void;
-    onNext?: () => void;
+    onSelectDiamond: (diamondId: string, diamond?: Diamond | null) => void;
+    onNext?: (selectedDiamondId?: string) => void;
 }
 
 const LoadingSpinner: React.FC = () => (
@@ -27,15 +27,33 @@ const CUT_GRADES = ['EX', 'VG', 'G', 'F', 'P']; // Excellent, Very Good, Good, F
 const POLISH_SYMMETRY_GRADES = ['EX', 'VG', 'G', 'F', 'P'];
 
 export const DiamondSelector: React.FC<DiamondSelectorProps> = ({ stoneShapeId, selectedDiamondId, onSelectDiamond, onNext }) => {
-    const [allDiamonds, setAllDiamonds] = useState<Diamond[]>([]);
-    const [filteredDiamonds, setFilteredDiamonds] = useState<Diamond[]>([]);
+    const [displayedDiamonds, setDisplayedDiamonds] = useState<Diamond[]>([]);
+    const [totalCount, setTotalCount] = useState(0);
+    const [currentPage, setCurrentPage] = useState(1);
     const [isLoading, setIsLoading] = useState(true);
+    const [isLoadingMore, setIsLoadingMore] = useState(false);
+    const [hasMore, setHasMore] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [viewingDiamond, setViewingDiamond] = useState<Diamond | null>(null);
     const [diamondType, setDiamondType] = useState<'natural' | 'lab' | 'all'>('natural');
 
     // Filter States
     const [isFiltersOpen, setIsFiltersOpen] = useState(false);
+    const [showFilterBubble, setShowFilterBubble] = useState(false);
+    const filterRef = useRef<HTMLDivElement>(null);
+
+    // Show bubble on mobile when user scrolls past the filters section
+    const handleScroll = useCallback(() => {
+        if (window.innerWidth >= 1024) return; // lg breakpoint — desktop only uses sidebar
+        if (!filterRef.current) return;
+        const rect = filterRef.current.getBoundingClientRect();
+        setShowFilterBubble(rect.bottom < 0);
+    }, []);
+
+    useEffect(() => {
+        window.addEventListener('scroll', handleScroll, { passive: true });
+        return () => window.removeEventListener('scroll', handleScroll);
+    }, [handleScroll]);
     const [selectedShape, setSelectedShape] = useState<string>(stoneShapeId ? stoneShapeId.charAt(0).toUpperCase() + stoneShapeId.slice(1) : 'Round');
 
     useEffect(() => {
@@ -46,123 +64,56 @@ export const DiamondSelector: React.FC<DiamondSelectorProps> = ({ stoneShapeId, 
 
     const [colorRange, setColorRange] = useState<[number, number]>([0, COLORS.length - 1]);
     const [clarityRange, setClarityRange] = useState<[number, number]>([0, CLARITIES.length - 1]);
-    const [cutRange, setCutRange] = useState<[number, number]>([0, 1]); // Default to EX - VG
-    const [polishRange, setPolishRange] = useState<[number, number]>([0, 1]); // Default to EX - VG
-    const [symmetryRange, setSymmetryRange] = useState<[number, number]>([0, 1]); // Default to EX - VG
+    const [cutRange, setCutRange] = useState<[number, number]>([0, CUT_GRADES.length - 1]);
+    const [polishRange, setPolishRange] = useState<[number, number]>([0, POLISH_SYMMETRY_GRADES.length - 1]);
+    const [symmetryRange, setSymmetryRange] = useState<[number, number]>([0, POLISH_SYMMETRY_GRADES.length - 1]);
 
-    // Price Filter State
-    const [priceLimits, setPriceLimits] = useState<[number, number]>([0, 58000]);
+    // Price Filter State — limits hardcoded; no need to scan full dataset
+    const [priceLimits] = useState<[number, number]>([0, 58000]);
     const [priceRange, setPriceRange] = useState<[number, number]>([0, 58000]);
 
     // Carat Filter State
-    const [caratLimits, setCaratLimits] = useState<[number, number]>([0.5, 6.5]);
+    const [caratLimits] = useState<[number, number]>([0.5, 6.5]);
     const [caratRange, setCaratRange] = useState<[number, number]>([0.5, 6.5]);
     const [caratMinText, setCaratMinText] = useState<string>('0.50');
     const [caratMaxText, setCaratMaxText] = useState<string>('6.50');
 
-    // Pagination
-    const [visibleCount, setVisibleCount] = useState(20);
-
+    // Fetch page 1 whenever filters change (debounced 300ms to avoid hammering the server on slider drag)
     useEffect(() => {
-        const fetchData = async () => {
-            try {
-                setIsLoading(true);
-                const data = await getDiamonds();
-                setAllDiamonds(data);
-
-                if (data.length > 0) {
-                    // Calculate Price Limits
-                    const prices = data.map(d => calculateDiamondPrice(d));
-                    const minPrice = Math.min(...prices);
-                    const maxPrice = 58000;
-                    setPriceLimits([minPrice, maxPrice]);
-                    setPriceRange([minPrice, maxPrice]);
-
-                    // Set Carat Limits (Fixed per request)
-                    setCaratLimits([0.5, 6.5]);
-                    setCaratRange([0.5, 6.5]);
-                }
-            } catch (err) {
-                setError('Failed to fetch diamonds. Please try again later.');
-            } finally {
-                setIsLoading(false);
-            }
+        const filter: PagedFilter = {
+            shape: selectedShape.toLowerCase(),
+            type: diamondType,
+            colorRange,
+            clarityRange,
+            cutRange,
+            polishRange,
+            symmetryRange,
+            priceRange,
+            caratRange,
         };
-        fetchData();
-    }, []);
 
-    useEffect(() => {
-        if (allDiamonds.length === 0) return;
-
-        // Filter by Type
-        let displayList: Diamond[] = [];
-        if (diamondType === 'all') {
-            displayList = allDiamonds;
-        } else if (diamondType === 'natural') {
-            displayList = allDiamonds.filter(d => d.Diamond_Type === 'Natural Diamond' || !d.Diamond_Type); // specific check or fallback
-        } else if (diamondType === 'lab') {
-            displayList = allDiamonds.filter(d => d.Diamond_Type === 'Lab Grown');
-        }
-
-        const filtered = displayList.filter(d => {
-            // Shape
-            if (d.Shape.toLowerCase() !== selectedShape.toLowerCase()) return false;
-
-            // Price - Use new calculation
-            const price = calculateDiamondPrice(d);
-            if (price < priceRange[0] || price > priceRange[1]) return false;
-
-            // Carat
-            const weight = parseFloat(d.Weight) || 0;
-            if (weight < caratRange[0] || weight > caratRange[1]) return false;
-
-            // Color
-            const colorIndex = COLORS.indexOf(d.Color);
-            if (colorIndex < colorRange[0] || colorIndex > colorRange[1]) return false;
-
-            // Clarity
-            const clarityIndex = CLARITIES.indexOf(d.Clarity);
-            if (clarityIndex < clarityRange[0] || clarityIndex > clarityRange[1]) return false;
-
-            // Cut (Round only)
-            if (selectedShape.toLowerCase() === 'round') {
-                const cutIndex = CUT_GRADES.indexOf(d.Cut_Grade);
-                if (cutIndex !== -1) {
-                    if (cutIndex < cutRange[0] || cutIndex > cutRange[1]) return false;
+        let cancelled = false;
+        const timer = setTimeout(async () => {
+            setIsLoading(true);
+            setError(null);
+            try {
+                const result = await getDiamondsPage(filter, 1);
+                if (!cancelled) {
+                    setDisplayedDiamonds(result.diamonds);
+                    setTotalCount(result.total);
+                    setHasMore(result.hasMore);
+                    setCurrentPage(1);
+                    setIsLoading(false);
                 }
-            } else {
-                // Polish & Symmetry (Non-Round)
-                const polishIndex = POLISH_SYMMETRY_GRADES.indexOf(d.Polish);
-                if (polishIndex !== -1) {
-                    if (polishIndex < polishRange[0] || polishIndex > polishRange[1]) return false;
-                }
-
-                const symIndex = POLISH_SYMMETRY_GRADES.indexOf(d.Symmetry);
-                if (symIndex !== -1) {
-                    if (symIndex < symmetryRange[0] || symIndex > symmetryRange[1]) return false;
+            } catch {
+                if (!cancelled) {
+                    setError('Failed to load diamonds. Please try again.');
+                    setIsLoading(false);
                 }
             }
-
-            // Availability
-            const availability = d.Availability ? d.Availability.toUpperCase() : '';
-            if (availability !== 'G' && availability !== 'M') return false;
-
-            return true;
-        });
-
-        setFilteredDiamonds(filtered);
-        setVisibleCount(20); // Reset pagination
-    }, [allDiamonds, selectedShape, colorRange, clarityRange, cutRange, polishRange, symmetryRange, priceRange, caratRange, diamondType]);
-
-    // Update price limits when diamond type changes (but preserve user's range selections)
-    useEffect(() => {
-        if (allDiamonds.length > 0) {
-            const prices = allDiamonds.map(d => calculateDiamondPrice(d));
-            const minPrice = Math.min(...prices);
-            setPriceLimits([minPrice, 58000]);
-            setCaratLimits([0.5, 6.5]);
-        }
-    }, [diamondType, allDiamonds]);
+        }, 300);
+        return () => { cancelled = true; clearTimeout(timer); };
+    }, [selectedShape, diamondType, colorRange, clarityRange, cutRange, polishRange, symmetryRange, priceRange, caratRange]);
 
     const handleSelectAndClose = (diamondId: string) => {
         if (viewingDiamond && viewingDiamond.Stock_No === diamondId) {
@@ -174,16 +125,35 @@ export const DiamondSelector: React.FC<DiamondSelectorProps> = ({ stoneShapeId, 
                 calculateDiamondPrice(viewingDiamond) ?? undefined
             );
         }
-        onSelectDiamond(diamondId);
+        onSelectDiamond(diamondId, viewingDiamond);
         setViewingDiamond(null);
     };
 
-    const loadMore = () => {
-        setVisibleCount(prev => prev + 20);
+    const loadMore = async () => {
+        if (isLoadingMore) return;
+        setIsLoadingMore(true);
+        const nextPage = currentPage + 1;
+        const filter: PagedFilter = {
+            shape: selectedShape.toLowerCase(),
+            type: diamondType,
+            colorRange,
+            clarityRange,
+            cutRange,
+            polishRange,
+            symmetryRange,
+            priceRange,
+            caratRange,
+        };
+        try {
+            const result = await getDiamondsPage(filter, nextPage);
+            setDisplayedDiamonds((prev: Diamond[]) => [...prev, ...result.diamonds]);
+            setTotalCount(result.total);
+            setHasMore(result.hasMore);
+            setCurrentPage(nextPage);
+        } finally {
+            setIsLoadingMore(false);
+        }
     };
-
-    if (isLoading) return <LoadingSpinner />;
-    if (error) return <div className="text-center text-red-500">{error}</div>;
 
     const isExpertSelected = selectedDiamondId === 'EXPERT_SELECTION';
 
@@ -214,9 +184,20 @@ export const DiamondSelector: React.FC<DiamondSelectorProps> = ({ stoneShapeId, 
                             </div>
                         </div>
                         <div className="relative z-10 flex-1 md:mb-4">
-                            <h3 className={`font-bold text-sm md:text-xl md:mb-1 ${isExpertSelected ? 'text-white' : 'text-brand-dark'}`}>
-                                Not sure which diamond to choose?
-                            </h3>
+                            <div className="flex items-center gap-1.5">
+                                <h3 className={`font-bold text-sm md:text-xl md:mb-1 ${isExpertSelected ? 'text-white' : 'text-brand-dark'}`}>
+                                    Not sure which diamond to choose?
+                                </h3>
+                                <div className="relative group/tip hidden md:block" onClick={e => e.stopPropagation()}>
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={`w-4 h-4 cursor-help ${isExpertSelected ? 'text-white/70' : 'text-brand/60'}`}>
+                                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM8.94 6.94a.75.75 0 11-1.061-1.061 3 3 0 112.871 5.026v.345a.75.75 0 01-1.5 0v-.5c0-.72.57-1.172 1.081-1.287A1.5 1.5 0 108.94 6.94zM10 15a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+                                    </svg>
+                                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 bg-gray-900 text-white text-xs rounded-lg px-3 py-2 opacity-0 group-hover/tip:opacity-100 pointer-events-none transition-opacity z-20 text-center">
+                                        We'll hand-pick 2–3 diamond options that match your style and budget — you approve before anything is ordered.
+                                        <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900" />
+                                    </div>
+                                </div>
+                            </div>
                             <p className={`text-xs md:text-base ${isExpertSelected ? 'text-white/90' : 'text-gray-600'}`}>
                                 Let our gem experts curate the perfect diamond options for you.
                             </p>
@@ -265,6 +246,11 @@ export const DiamondSelector: React.FC<DiamondSelectorProps> = ({ stoneShapeId, 
                             <p className={`text-xs md:text-base ${selectedDiamondId === 'CUSTOMER_STONE' ? 'text-white/90' : 'text-gray-600'}`}>
                                 I have a stone I'd like to use for this design.
                             </p>
+                            {selectedDiamondId === 'CUSTOMER_STONE' && (
+                                <p className="text-xs mt-1 md:mt-2 italic text-white/75">
+                                    Please note: to protect both parties, we can only work with stones that have been in your family/are already owned — we are unable to accept stones sourced elsewhere.
+                                </p>
+                            )}
                         </div>
                         <div className="relative z-10 md:mt-auto flex justify-end shrink-0">
                             <div className={`flex items-center gap-1 md:gap-2 font-bold px-3 py-1.5 md:px-4 md:py-2 rounded-full text-xs md:text-base transition-all w-fit ${selectedDiamondId === 'CUSTOMER_STONE'
@@ -285,9 +271,9 @@ export const DiamondSelector: React.FC<DiamondSelectorProps> = ({ stoneShapeId, 
 
                 <div className="flex flex-col lg:flex-row gap-8 pb-24">
                     {/* Filters Sidebar */}
-                    <div className="w-full lg:w-1/4 space-y-6 lg:space-y-8 bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-gray-200 h-fit">
+                    <div ref={filterRef} className="w-full lg:w-1/4 space-y-6 lg:space-y-8 bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-gray-200 h-fit">
                         <div className="flex justify-between items-center lg:hidden cursor-pointer" onClick={() => setIsFiltersOpen(!isFiltersOpen)}>
-                            <h3 className="font-bold text-lg text-[#232429]">Filters</h3>
+                            <h3 className="font-bold text-lg text-[#232429]">Diamond Specifications</h3>
                             <button className="text-gray-500 bg-gray-100 p-2 rounded-md">
                                 {isFiltersOpen ? (
                                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
@@ -301,6 +287,9 @@ export const DiamondSelector: React.FC<DiamondSelectorProps> = ({ stoneShapeId, 
                             </button>
                         </div>
 
+                        {isFiltersOpen && (
+                            <p className="lg:hidden text-xs text-gray-400 mt-2 mb-1">Results update automatically as you adjust filters.</p>
+                        )}
                         <div className={`space-y-8 ${isFiltersOpen ? 'block mt-4' : 'hidden lg:block'}`}>
                             <div>
                                 <h4 className="font-semibold mb-4">Shape</h4>
@@ -309,7 +298,7 @@ export const DiamondSelector: React.FC<DiamondSelectorProps> = ({ stoneShapeId, 
                                         <button
                                             key={shape}
                                             onClick={() => setSelectedShape(shape)}
-                                            className={`px-2 py-2 text-xs rounded border ${selectedShape.toLowerCase() === shape.toLowerCase() ? 'bg-brand text-white border-brand' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+                                            className={`px-2 py-2 text-xs rounded border ${selectedShape.toLowerCase() === shape.toLowerCase() ? 'bg-brand text-white border-brand' : 'bg-white text-gray-700 border-gray-200 ring-1 ring-gray-200 hover:border-brand hover:ring-brand'}`}
                                         >
                                             {shape}
                                         </button>
@@ -478,81 +467,31 @@ export const DiamondSelector: React.FC<DiamondSelectorProps> = ({ stoneShapeId, 
                                 </div>
                             </div>
 
-                            {selectedShape.toLowerCase() === 'round' ? (
-                                <div>
-                                    <h4 className="font-semibold mb-2">Cut</h4>
-                                    <div className="flex justify-between text-sm text-gray-600 mb-2">
-                                        <span>{CUT_GRADES[cutRange[0]] === 'EX' ? 'Excellent' : CUT_GRADES[cutRange[0]]}</span>
-                                        <span>{CUT_GRADES[cutRange[1]] === 'VG' ? 'Very Good' : CUT_GRADES[cutRange[1]]}</span>
-                                    </div>
-                                    <DualRangeSlider
-                                        min={0}
-                                        max={1} // Limit to EX - VG
-                                        value={cutRange}
-                                        onChange={setCutRange}
-                                    />
-                                    <div className="flex justify-between text-xs text-gray-500 mt-1">
-                                        <span>Excellent</span>
-                                        <span>Very Good</span>
-                                    </div>
-                                </div>
-                            ) : (
-                                <>
-                                    <div>
-                                        <h4 className="font-semibold mb-2">Polish</h4>
-                                        <div className="flex justify-between text-sm text-gray-600 mb-2">
-                                            <span>{POLISH_SYMMETRY_GRADES[polishRange[0]] === 'EX' ? 'Excellent' : POLISH_SYMMETRY_GRADES[polishRange[0]]}</span>
-                                            <span>{POLISH_SYMMETRY_GRADES[polishRange[1]] === 'VG' ? 'Very Good' : POLISH_SYMMETRY_GRADES[polishRange[1]]}</span>
-                                        </div>
-                                        <DualRangeSlider
-                                            min={0}
-                                            max={1}
-                                            value={polishRange}
-                                            onChange={setPolishRange}
-                                        />
-                                        <div className="flex justify-between text-xs text-gray-500 mt-1">
-                                            <span>Excellent</span>
-                                            <span>Very Good</span>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <h4 className="font-semibold mb-2">Symmetry</h4>
-                                        <div className="flex justify-between text-sm text-gray-600 mb-2">
-                                            <span>{POLISH_SYMMETRY_GRADES[symmetryRange[0]] === 'EX' ? 'Excellent' : POLISH_SYMMETRY_GRADES[symmetryRange[0]]}</span>
-                                            <span>{POLISH_SYMMETRY_GRADES[symmetryRange[1]] === 'VG' ? 'Very Good' : POLISH_SYMMETRY_GRADES[symmetryRange[1]]}</span>
-                                        </div>
-                                        <DualRangeSlider
-                                            min={0}
-                                            max={1}
-                                            value={symmetryRange}
-                                            onChange={setSymmetryRange}
-                                        />
-                                        <div className="flex justify-between text-xs text-gray-500 mt-1">
-                                            <span>Excellent</span>
-                                            <span>Very Good</span>
-                                        </div>
-                                    </div>
-                                </>
-                            )}
                         </div>
                     </div>
 
                     {/* Results Grid */}
                     <div className="w-full lg:w-3/4">
                         <h3 className="text-xl font-semibold text-[#232429] mb-6">
-                            {filteredDiamonds.length} {diamondType === 'all' ? '' : (diamondType === 'lab' ? 'Lab Grown' : 'Natural')} {selectedShape} Diamonds Found
+                            {isLoading ? 'Searching...' : `${totalCount} ${diamondType === 'all' ? '' : (diamondType === 'lab' ? 'Lab Grown' : 'Natural')} ${selectedShape} Diamonds Found`}
                         </h3>
 
-                        {filteredDiamonds.length > 0 ? (
+                        {error && (
+                            <div className="text-center text-red-500 py-8">{error}</div>
+                        )}
+
+                        {isLoading ? (
+                            <LoadingSpinner />
+                        ) : displayedDiamonds.length > 0 ? (
                             <>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                                    {filteredDiamonds.slice(0, visibleCount).map(diamond => (
+                                <div key={totalCount} className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 gap-2 sm:gap-4 animate-fade-in-up">
+                                    {displayedDiamonds.map(diamond => (
                                         <div
                                             key={diamond.Stock_No}
                                             onClick={() => setViewingDiamond(diamond)}
                                             className={`cursor-pointer group rounded-lg overflow-hidden border transition-all duration-300 bg-white ${selectedDiamondId === diamond.Stock_No ? 'border-brand ring-2 ring-brand' : 'border-gray-200 hover:shadow-md hover:border-brand'}`}
                                         >
-                                            <div className="aspect-square bg-gray-100 relative overflow-hidden">
+                                            <div className="aspect-[4/3] sm:aspect-square bg-gray-100 relative overflow-hidden">
                                                 <img
                                                     src={diamond.ImageLink || '/images/diamond-placeholder.svg'}
                                                     alt={`${diamond.Shape} diamond`}
@@ -571,20 +510,20 @@ export const DiamondSelector: React.FC<DiamondSelectorProps> = ({ stoneShapeId, 
                                                     )}
                                                 </div>
                                             </div>
-                                            <div className="p-4">
-                                                <div className="flex justify-between items-start mb-2">
-                                                    <p className="font-bold text-lg text-[#232429]">
+                                            <div className="p-2 sm:p-4">
+                                                <div className="flex justify-between items-start mb-1 sm:mb-2">
+                                                    <p className="font-bold text-sm sm:text-lg text-[#232429]">
                                                         ${calculateDiamondPrice(diamond).toLocaleString()}
                                                     </p>
-                                                    <span className="text-xs bg-gray-100 px-2 py-1 rounded text-gray-600">{diamond.Stock_No.replace('-LAB', '')}</span>
+                                                    <span className="text-[10px] sm:text-xs bg-gray-100 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded text-gray-600">{diamond.Stock_No.replace('-LAB', '')}</span>
                                                 </div>
-                                                <p className="text-gray-800 font-medium">{diamond.Weight} Carat {diamond.Shape}</p>
-                                                <div className="flex items-center space-x-2 text-sm text-gray-500 mt-1">
+                                                <p className="text-xs sm:text-base text-gray-800 font-medium">{parseFloat(diamond.Weight).toFixed(2)} ct {diamond.Shape}</p>
+                                                <div className="flex items-center space-x-1 sm:space-x-2 text-[11px] sm:text-sm text-gray-500 mt-0.5 sm:mt-1">
                                                     <span>{diamond.Color} Color</span>
                                                     <span>•</span>
                                                     <span>{diamond.Clarity} Clarity</span>
                                                 </div>
-                                                <div className="mt-3 pt-3 border-t border-gray-100 text-xs text-gray-400 flex justify-between">
+                                                <div className="mt-2 pt-2 sm:mt-3 sm:pt-3 border-t border-gray-100 text-[10px] sm:text-xs text-gray-400 flex justify-between">
                                                     <span>Cut: {diamond.Cut_Grade || 'N/A'}</span>
                                                     <span>Pol: {diamond.Polish}</span>
                                                     <span>Sym: {diamond.Symmetry}</span>
@@ -593,13 +532,14 @@ export const DiamondSelector: React.FC<DiamondSelectorProps> = ({ stoneShapeId, 
                                         </div>
                                     ))}
                                 </div>
-                                {visibleCount < filteredDiamonds.length && (
+                                {hasMore && (
                                     <div className="mt-8 text-center">
                                         <button
                                             onClick={loadMore}
-                                            className="px-6 py-2 bg-white border border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-50 transition-colors"
+                                            disabled={isLoadingMore}
+                                            className="px-6 py-2 bg-white border border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
                                         >
-                                            Load More Diamonds
+                                            {isLoadingMore ? 'Loading...' : 'Load More Diamonds'}
                                         </button>
                                     </div>
                                 )}
@@ -611,7 +551,9 @@ export const DiamondSelector: React.FC<DiamondSelectorProps> = ({ stoneShapeId, 
                                     onClick={() => {
                                         setColorRange([0, COLORS.length - 1]);
                                         setClarityRange([0, CLARITIES.length - 1]);
-                                        setCutRange([0, 1]);
+                                        setCutRange([0, CUT_GRADES.length - 1]);
+                                        setPolishRange([0, POLISH_SYMMETRY_GRADES.length - 1]);
+                                        setSymmetryRange([0, POLISH_SYMMETRY_GRADES.length - 1]);
                                         setPriceRange(priceLimits);
                                         setCaratRange(caratLimits);
                                     }}
@@ -629,7 +571,48 @@ export const DiamondSelector: React.FC<DiamondSelectorProps> = ({ stoneShapeId, 
                 diamond={viewingDiamond}
                 onClose={() => setViewingDiamond(null)}
                 onSelect={handleSelectAndClose}
+                onNext={onNext}
             />
+
+            {/* Mobile filter bubble — appears when scrolled past filters */}
+            {showFilterBubble && !viewingDiamond && (
+                <button
+                    className="lg:hidden fixed bottom-24 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2.5 bg-brand text-white text-sm font-semibold rounded-full shadow-lg animate-bounce-in"
+                    style={{ boxShadow: '0 4px 20px rgba(74,126,184,0.45)' }}
+                    onClick={() => {
+                        setIsFiltersOpen(true);
+                        filterRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }}
+                >
+                    {/* Funnel icon */}
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 shrink-0">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 3c2.755 0 5.455.232 8.083.678.533.09.917.556.917 1.096v1.044a2.25 2.25 0 0 1-.659 1.591L15.75 12.75v6a.75.75 0 0 1-.45.691l-3 1.5a.75.75 0 0 1-1.05-.691V12.75L4.659 7.409A2.25 2.25 0 0 1 4 5.818V4.774c0-.54.384-1.006.917-1.096A48.32 48.32 0 0 1 12 3Z" />
+                    </svg>
+                    Click here to change diamond specifications
+                    {/* Speech bubble tail */}
+                    <span style={{
+                        position: 'absolute',
+                        bottom: '-7px',
+                        left: '50%',
+                        transform: 'translateX(-50%)',
+                        width: 0,
+                        height: 0,
+                        borderLeft: '7px solid transparent',
+                        borderRight: '7px solid transparent',
+                        borderTop: '7px solid #4A7EB8',
+                    }} />
+                </button>
+            )}
+            {diamondType === 'natural' && (
+                <p className="text-xs text-gray-400 text-center mt-4 px-2">
+                    <strong>GIA</strong> stands for Gemological Institute of America. All of our natural diamonds are GIA certified and priced at wholesale cost.
+                </p>
+            )}
+            {diamondType === 'lab' && (
+                <p className="text-xs text-gray-400 text-center mt-4 px-2">
+                    <strong>IGI</strong> stands for International Gemological Institute. All of our lab grown diamonds are IGI certified.
+                </p>
+            )}
         </>
     );
 };

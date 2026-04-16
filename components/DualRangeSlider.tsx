@@ -19,114 +19,135 @@ export const DualRangeSlider: React.FC<DualRangeSliderProps> = ({
 }) => {
     const [minVal, setMinVal] = useState(value[0]);
     const [maxVal, setMaxVal] = useState(value[1]);
-    const minValRef = useRef(value[0]);
-    const maxValRef = useRef(value[1]);
-    const range = useRef<HTMLDivElement>(null);
+    const trackRef = useRef<HTMLDivElement>(null);
+    const rangeRef = useRef<HTMLDivElement>(null);
+    const dragging = useRef<'min' | 'max' | null>(null);
 
-    // Convert to percentage
-    const getPercent = useCallback(
-        (value: number) => Math.round(((value - min) / (max - min)) * 100),
-        [min, max]
-    );
-
-    // Set width of the range to decrease from the left side
-    useEffect(() => {
-        const minPercent = getPercent(minVal);
-        const maxPercent = getPercent(maxValRef.current);
-
-        if (range.current) {
-            range.current.style.left = `${minPercent}%`;
-            range.current.style.width = `${maxPercent - minPercent}%`;
-        }
-    }, [minVal, getPercent]);
-
-    // Set width of the range to decrease from the right side
-    useEffect(() => {
-        const minPercent = getPercent(minValRef.current);
-        const maxPercent = getPercent(maxVal);
-
-        if (range.current) {
-            range.current.style.width = `${maxPercent - minPercent}%`;
-        }
-    }, [maxVal, getPercent]);
-
+    // Sync external value changes
     useEffect(() => {
         setMinVal(value[0]);
         setMaxVal(value[1]);
-        minValRef.current = value[0];
-        maxValRef.current = value[1];
     }, [value]);
 
-    return (
-        <div className={`relative w-full h-6 flex items-center ${className}`}>
-            <input
-                type="range"
-                min={min}
-                max={max}
-                value={minVal}
-                step={step}
-                onChange={(event) => {
-                    const value = Math.min(Number(event.target.value), maxVal - step);
-                    setMinVal(value);
-                    minValRef.current = value;
-                    onChange([value, maxVal]);
-                }}
-                className="dr-thumb dr-thumb--left pointer-events-none absolute h-0 w-full outline-none z-[1]"
-                style={{ zIndex: minVal > max - 100 ? 2 : 1 }}
-            />
-            <input
-                type="range"
-                min={min}
-                max={max}
-                value={maxVal}
-                step={step}
-                onChange={(event) => {
-                    const value = Math.max(Number(event.target.value), minVal + step);
-                    setMaxVal(value);
-                    maxValRef.current = value;
-                    onChange([minVal, value]);
-                }}
-                className="dr-thumb dr-thumb--right pointer-events-none absolute h-0 w-full outline-none z-[2]"
-            />
+    const getPercent = useCallback(
+        (val: number) => ((val - min) / (max - min)) * 100,
+        [min, max]
+    );
 
-            <div className="relative w-full">
-                <div className="absolute bg-gray-200 w-full z-[0] h-1.5 rounded-md"></div>
+    // Update the blue fill bar
+    useEffect(() => {
+        if (rangeRef.current) {
+            const minPct = getPercent(minVal);
+            const maxPct = getPercent(maxVal);
+            rangeRef.current.style.left = `${minPct}%`;
+            rangeRef.current.style.width = `${maxPct - minPct}%`;
+        }
+    }, [minVal, maxVal, getPercent]);
+
+    // Convert a clientX position to a snapped value within [min, max]
+    const clientXToValue = useCallback((clientX: number): number => {
+        if (!trackRef.current) return min;
+        const rect = trackRef.current.getBoundingClientRect();
+        const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+        const raw = min + pct * (max - min);
+        const snapped = Math.round(raw / step) * step;
+        return Math.min(max, Math.max(min, snapped));
+    }, [min, max, step]);
+
+    // Pointer down on a thumb — start drag
+    const onThumbPointerDown = (thumb: 'min' | 'max') => (e: React.PointerEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dragging.current = thumb;
+        (e.target as Element).setPointerCapture(e.pointerId);
+    };
+
+    const onPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+        if (!dragging.current) return;
+        e.preventDefault();
+        const val = clientXToValue(e.clientX);
+        if (dragging.current === 'min') {
+            const newVal = Math.min(val, maxVal - step);
+            setMinVal(newVal);
+            onChange([newVal, maxVal]);
+        } else {
+            const newVal = Math.max(val, minVal + step);
+            setMaxVal(newVal);
+            onChange([minVal, newVal]);
+        }
+    }, [clientXToValue, minVal, maxVal, step, onChange]);
+
+    const onPointerUp = useCallback(() => {
+        dragging.current = null;
+    }, []);
+
+    // Click on the track itself (not a thumb) — jump nearest thumb
+    const onTrackClick = (e: React.MouseEvent<HTMLDivElement>) => {
+        if (dragging.current) return;
+        const val = clientXToValue(e.clientX);
+        const distToMin = Math.abs(val - minVal);
+        const distToMax = Math.abs(val - maxVal);
+        if (distToMin <= distToMax) {
+            const newVal = Math.min(val, maxVal - step);
+            setMinVal(newVal);
+            onChange([newVal, maxVal]);
+        } else {
+            const newVal = Math.max(val, minVal + step);
+            setMaxVal(newVal);
+            onChange([minVal, newVal]);
+        }
+    };
+
+    const minPct = getPercent(minVal);
+    const maxPct = getPercent(maxVal);
+
+    return (
+        <div
+            className={`relative w-full select-none ${className}`}
+            style={{ padding: '14px 0', cursor: 'pointer', touchAction: 'none' }}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerLeave={onPointerUp}
+        >
+            {/* Track */}
+            <div
+                ref={trackRef}
+                className="relative w-full h-2 rounded-md bg-gray-200"
+                onClick={onTrackClick}
+            >
+                {/* Blue fill */}
+                <div ref={rangeRef} className="absolute h-full rounded-md bg-brand" />
+
+                {/* Min thumb */}
                 <div
-                    ref={range}
-                    className="absolute bg-brand z-[0] h-1.5 rounded-md"
+                    className="absolute top-1/2 w-5 h-5 rounded-full bg-white border-2 shadow-md"
+                    style={{
+                        left: `${minPct}%`,
+                        transform: 'translate(-50%, -50%)',
+                        borderColor: '#4A7EB8',
+                        cursor: 'grab',
+                        zIndex: 2,
+                        touchAction: 'none',
+                    }}
+                    onPointerDown={onThumbPointerDown('min')}
+                    onClick={e => e.stopPropagation()}
+                />
+
+                {/* Max thumb */}
+                <div
+                    className="absolute top-1/2 w-5 h-5 rounded-full bg-white border-2 shadow-md"
+                    style={{
+                        left: `${maxPct}%`,
+                        transform: 'translate(-50%, -50%)',
+                        borderColor: '#4A7EB8',
+                        cursor: 'grab',
+                        zIndex: 2,
+                        touchAction: 'none',
+                    }}
+                    onPointerDown={onThumbPointerDown('max')}
+                    onClick={e => e.stopPropagation()}
                 />
             </div>
-
-            <style>{`
-                /* Webkit (Chrome, Safari, Edge) */
-                .dr-thumb::-webkit-slider-thumb {
-                    -webkit-appearance: none;
-                    -webkit-tap-highlight-color: transparent;
-                    pointer-events: auto;
-                    height: 18px;
-                    width: 18px;
-                    border-radius: 50%;
-                    background-color: white;
-                    border: 2px solid #A6D1E6; /* Brand color - Powder Blue */
-                    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-                    cursor: pointer;
-                    margin-top: 1px; /* Adjust for alignment */
-                    accent-color: #A6D1E6;
-                }
-
-                /* Firefox */
-                .dr-thumb::-moz-range-thumb {
-                    pointer-events: auto;
-                    height: 18px;
-                    width: 18px;
-                    border-radius: 50%;
-                    background-color: white;
-                    border: 2px solid #A6D1E6; /* Brand color - Powder Blue */
-                    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-                    cursor: pointer;
-                    border: none;
-                }
-            `}</style>
         </div>
     );
 };

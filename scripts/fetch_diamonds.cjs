@@ -110,4 +110,11 @@ async function main() {
     }
 }
 
-main();
+main().then(() => {
+    // Split into per-shape files for efficient lazy loading
+    try {
+        require('./split_diamonds.cjs');
+    } catch (e) {
+        console.error('Warning: split_diamonds.cjs failed:', e.message);
+    }
+});

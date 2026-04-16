@@ -41,10 +41,10 @@ try {
             'price_data' => [
                 'currency' => 'usd',
                 'product_data' => [
-                    'name' => 'Custom Ring Design Deposit',
-                    'description' => 'Deposit to begin your custom ring design process.',
+                    'name' => 'Custom Ring Design Deposit ($250)',
+                    'description' => 'Non-refundable deposit applied toward your final ring price. Begins the 3D model process.',
                 ],
-                'unit_amount' => 50000, // $500.00 in cents
+                'unit_amount' => 25000, // $250.00 in cents
             ],
             'quantity' => 1,
         ]],

@@ -5,6 +5,8 @@ export interface Option {
     imageUrl?: string;
     videoUrl?: string;
     labGrownPrice?: string;
+    price?: string;
+    category?: string;
 }
 
 export interface Question {

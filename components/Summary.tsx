@@ -5,22 +5,16 @@ import {
     trackInquirySubmitted, trackPaymentSuccess,
 } from '../analytics';
 import { QUESTIONS, FORM_STEPS } from '../constants';
-import { getDiamonds } from '../services/diamondApi';
+import { getDiamondById } from '../services/diamondApi';
 import { calculateDiamondPrice } from '../utils';
 
 interface SummaryProps {
     configuration: RingConfiguration;
+    selectedDiamondObj?: Diamond | null;
+    initialFiles?: File[];
     onRestart: () => void;
     onEditStep: (stepIndex: number, overlay?: string) => void;
 }
-
-const getBaseRingLabGrownName = (optionName: string, labGrownPrice: string): string => {
-    const nameMatch = optionName.match(/^(.*?)\s*-\s*(.*?)\s*-\s*\$.*$/);
-    if (nameMatch) {
-        return `${nameMatch[1]} - ${nameMatch[2]} - with Lab Grown Side Diamonds ${labGrownPrice}`;
-    }
-    return optionName;
-};
 
 const TACORIE_VARIANT_LABELS: Record<string, { label: string; price: string }> = {
     'pink-natural':    { label: 'with natural pink diamonds (as shown)', price: '$18,500' },
@@ -32,18 +26,16 @@ const TACORIE_VARIANT_LABELS: Record<string, { label: string; price: string }> =
 const applyBaseRingVariant = (name: string, configuration: RingConfiguration, optionId: string): string => {
     const variant = configuration['baseRingVariant'] as string | null;
     if (optionId !== 'tacorie-style') {
-        // non-tacorie: legacy lab grown label
         if (configuration['baseRingLabGrown'] === 'true') {
             const option = QUESTIONS.find(q => q.id === 'baseRing')?.options.find(o => o.id === optionId);
-            if (option?.labGrownPrice) return getBaseRingLabGrownName(name, option.labGrownPrice);
+            if (option?.labGrownPrice) return `${name} — lab grown side diamonds (${option.labGrownPrice})`;
         }
         return name;
     }
     // tacorie
     if (variant && TACORIE_VARIANT_LABELS[variant]) {
         const v = TACORIE_VARIANT_LABELS[variant];
-        const baseName = name.match(/^(.*?)\s*-/)?.[1]?.trim() || name;
-        return `${baseName} - ${v.label} (${v.price})`;
+        return `${name} — ${v.label} (${v.price})`;
     }
     return name;
 };
@@ -106,6 +98,7 @@ const HIDDEN_STONE_OPTIONS = [
     { id: 'hidden-stone-inside', label: 'Hidden Stone (Inside)' },
     { id: 'hidden-stone-outside', label: 'Hidden Stone (Outside)' },
     { id: 'hidden-stone-head', label: 'Hidden Stone (Head)' },
+    { id: 'alternating-stone-type', label: 'Alternating Stone Type' },
 ];
 
 const HiddenStoneIcon = ({ color }: { color?: string }) => (
@@ -129,30 +122,67 @@ const OtherDiamondIcon = () => (
     </div>
 );
 
-export const Summary: React.FC<SummaryProps> = ({ configuration, onRestart, onEditStep }) => {
-    const [selectedDiamond, setSelectedDiamond] = useState<Diamond | null>(null);
+const RingSizeIcon = () => (
+    <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-md bg-brand-light flex items-center justify-center text-brand-dark shrink-0">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6 sm:w-8 sm:h-8">
+            <circle cx="12" cy="12" r="9" strokeWidth="1.5"/>
+            <circle cx="12" cy="12" r="5" strokeWidth="1.5"/>
+        </svg>
+    </div>
+);
+
+const MetalIcon = () => (
+    <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-md bg-brand-light flex items-center justify-center text-brand-dark shrink-0">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6 sm:w-8 sm:h-8">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 9.563C9 9.252 9.252 9 9.563 9h4.874c.311 0 .563.252.563.563v4.874c0 .311-.252.563-.563.563H9.564A.562.562 0 0 1 9 14.437V9.564Z"/>
+        </svg>
+    </div>
+);
+
+const StoneShapeIcon = () => (
+    <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-md bg-brand-light flex items-center justify-center text-brand-dark shrink-0">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="w-6 h-6 sm:w-8 sm:h-8">
+            <polygon points="12,2 20,8 17,18 7,18 4,8" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+            <polygon points="12,2 20,8 12,5 4,8" fill="currentColor" opacity="0.3"/>
+            <polygon points="12,5 20,8 17,18 7,18 4,8" fill="currentColor" opacity="0.15"/>
+        </svg>
+    </div>
+);
+
+export const Summary: React.FC<SummaryProps> = ({ configuration, selectedDiamondObj, initialFiles, onRestart, onEditStep }) => {
+    const [selectedDiamond, setSelectedDiamond] = useState<Diamond | null>(selectedDiamondObj ?? null);
+    const [isDiamondLoading, setIsDiamondLoading] = useState(false);
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [isEstimateModalOpen, setIsEstimateModalOpen] = useState(false);
+    const [estimateSubmitted, setEstimateSubmitted] = useState(false);
 
     useEffect(() => {
-        if (isModalOpen) {
+        if (isModalOpen || isEstimateModalOpen) {
             document.body.style.overflow = 'hidden';
         } else {
             document.body.style.overflow = '';
         }
         return () => { document.body.style.overflow = ''; };
-    }, [isModalOpen]);
+    }, [isModalOpen, isEstimateModalOpen]);
     const [formData, setFormData] = useState({
         name: '',
         email: '',
         phone: '',
         ringSize: '',
         address: '',
+        city: '',
+        state: '',
+        zip: '',
         info: ''
     });
     const formStartedRef = useRef(false);
+    const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+    const turnstileRef = useRef<HTMLDivElement>(null);
+    const turnstileWidgetId = useRef<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [submitStatus, setSubmitStatus] = useState<{ success: boolean; message: string } | null>(null);
-    const [files, setFiles] = useState<File[]>([]);
+    const [files, setFiles] = useState<File[]>(initialFiles ?? []);
     const [isDragging, setIsDragging] = useState(false);
 
     const allQuestionIds = [...QUESTIONS.map(q => q.id), 'diamond'];
@@ -161,19 +191,85 @@ export const Summary: React.FC<SummaryProps> = ({ configuration, onRestart, onEd
         const fetchDiamond = async () => {
             const diamondId = configuration['diamond'];
             if (diamondId && diamondId !== 'EXPERT_SELECTION' && diamondId !== 'CUSTOMER_STONE') {
-                const diamonds = await getDiamonds();
-
-                // Find the diamond directly by ID
-                const found = diamonds.find(d => d.Stock_No === diamondId);
+                // Use passed diamond object if available and matching
+                if (selectedDiamondObj && selectedDiamondObj.Stock_No === diamondId) {
+                    setSelectedDiamond(selectedDiamondObj);
+                    return;
+                }
+                // Fallback: fetch from API (e.g. page reload with cookie-persisted config)
+                setIsDiamondLoading(true);
+                const found = await getDiamondById(diamondId);
                 if (found) {
                     setSelectedDiamond(found);
                 }
+                setIsDiamondLoading(false);
             }
         };
         fetchDiamond();
     }, [configuration]);
 
     const [pendingConfirmation, setPendingConfirmation] = useState(false);
+    const [designPanelOpen, setDesignPanelOpen] = useState(false);
+    const [linkCopied, setLinkCopied] = useState(false);
+    const cardRefs = useRef<(HTMLDivElement | null)[]>([]);
+    const panelRef = useRef<HTMLDivElement>(null);
+
+    const openDesignPanel = () => {
+        const isMobile = window.innerWidth < 640;
+        const cards = cardRefs.current.filter(Boolean) as HTMLDivElement[];
+        if (!cards.length) { setDesignPanelOpen(true); return; }
+
+        setDesignPanelOpen(true);
+
+        // After panel is in DOM, animate clones
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                const panel = panelRef.current;
+                if (!panel) return;
+                const panelRect = panel.getBoundingClientRect();
+
+                // Target: right side of screen into panel (desktop) or top of bottom sheet (mobile)
+                const landingX = isMobile ? panelRect.left + panelRect.width / 2 : window.innerWidth - 80;
+                const landingY = isMobile ? panelRect.top + 90 : panelRect.top + 120;
+
+                cards.forEach((card, i) => {
+                    const rect = card.getBoundingClientRect();
+                    const clone = card.cloneNode(true) as HTMLDivElement;
+                    const delay = i * 100;
+                    clone.style.cssText = `
+                        position: fixed;
+                        top: ${rect.top}px;
+                        left: ${rect.left}px;
+                        width: ${rect.width}px;
+                        height: ${rect.height}px;
+                        margin: 0;
+                        z-index: 200;
+                        pointer-events: none;
+                        transition: transform 420ms cubic-bezier(0.25,0.46,0.45,0.94) ${delay}ms, opacity 300ms ease ${delay + 200}ms, box-shadow 420ms ease ${delay}ms;
+                        transform-origin: left center;
+                        opacity: 1;
+                        border-radius: 8px;
+                        box-shadow: 0 4px 24px rgba(0,0,0,0.13);
+                        transform: scale(1.03);
+                    `;
+                    document.body.appendChild(clone);
+
+                    requestAnimationFrame(() => {
+                        // Fly to left edge of panel, stack vertically by index
+                        const tx = landingX - rect.left;
+                        const ty = landingY - rect.top + (i * 4);
+                        clone.style.transform = `translate(${tx}px, ${ty}px) scale(0.72)`;
+                        clone.style.opacity = '0';
+                        clone.style.boxShadow = '0 2px 8px rgba(0,0,0,0.06)';
+                    });
+
+                    setTimeout(() => {
+                        clone.remove();
+                    }, delay + 750);
+                });
+            });
+        });
+    };
 
     useEffect(() => {
         const query = new URLSearchParams(window.location.search);
@@ -207,6 +303,31 @@ export const Summary: React.FC<SummaryProps> = ({ configuration, onRestart, onEd
             setPendingConfirmation(false);
         }
     }, [pendingConfirmation, selectedDiamond, configuration]);
+
+    useEffect(() => {
+        if (!isEstimateModalOpen) return;
+        // Reset token whenever modal opens
+        setTurnstileToken(null);
+        // Wait for the div to be in the DOM, then render widget
+        const timer = setTimeout(() => {
+            const w = window as any;
+            if (!turnstileRef.current || !w.turnstile) return;
+            // Remove any previous widget first
+            if (turnstileWidgetId.current !== null) {
+                try { w.turnstile.remove(turnstileWidgetId.current); } catch {}
+                turnstileWidgetId.current = null;
+            }
+            turnstileRef.current.innerHTML = '';
+            turnstileWidgetId.current = w.turnstile.render(turnstileRef.current, {
+                sitekey: '0x4AAAAAACw7MQKbcThdTe-p',
+                callback: (token: string) => setTurnstileToken(token),
+                'expired-callback': () => setTurnstileToken(null),
+                'error-callback': () => setTurnstileToken(null),
+                theme: 'light',
+            });
+        }, 100);
+        return () => clearTimeout(timer);
+    }, [isEstimateModalOpen]);
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
         if (!formStartedRef.current) {
@@ -298,7 +419,24 @@ export const Summary: React.FC<SummaryProps> = ({ configuration, onRestart, onEd
                 if (questionId === 'baseRing' && typeof selection === 'string') {
                     displayName = applyBaseRingVariant(details.name, configuration, selection);
                 }
-                const questionText = QUESTIONS.find(q => q.id === questionId)?.text.replace(/Step \d+: /, '') || questionId;
+                if (questionId === 'stoneShape') {
+                    const stoneOpt = configuration['stoneOption'] as string | undefined;
+                    if (stoneOpt === 'colored-stone') {
+                        const shapeArr = Array.isArray(configuration['stoneShape']) ? configuration['stoneShape'] as string[] : (configuration['stoneShape'] ? [configuration['stoneShape'] as string] : []);
+                        const shapeId = shapeArr.find((s: string) => s !== 'colored-stone' && s !== 'other' && s !== 'diamond');
+                        const shapeName = shapeId ? (getSelectionDetails('stoneShape', [shapeId]).name) : '';
+                        const stoneType = configuration['coloredStoneType'] as string || '';
+                        const stoneVariety = configuration['coloredStoneVariety'] as string || '';
+                        const stoneName = stoneVariety ? `${stoneVariety} ${stoneType}` : stoneType;
+                        displayName = shapeName && stoneName ? `${shapeName} shaped ${stoneName}` : stoneName || 'Colored Stone';
+                    } else if (stoneOpt === 'other') {
+                        displayName = configuration['otherShapeText'] ? `Other: ${configuration['otherShapeText'] as string}` : 'Other Diamond Shape';
+                    } else {
+                        const shapeArr = Array.isArray(selection) ? selection as string[] : (selection ? [selection as string] : []);
+                        displayName = getSelectionDetails('stoneShape', shapeArr).name;
+                    }
+                }
+                const questionText = questionId === 'stoneShape' ? 'Center Stone Shape' : (QUESTIONS.find(q => q.id === questionId)?.text.replace(/Step \d+: /, '') || questionId);
                 return {
                     questionId,
                     questionText,
@@ -308,20 +446,6 @@ export const Summary: React.FC<SummaryProps> = ({ configuration, onRestart, onEd
                 };
             }
         }).filter(s => s !== null);
-
-        const stoneShapeConfig = configuration['stoneShape'];
-        const stoneShapeConfigArr = Array.isArray(stoneShapeConfig) ? stoneShapeConfig : (stoneShapeConfig ? [stoneShapeConfig as string] : []);
-        if (stoneShapeConfigArr.includes('colored-stone') && configuration['coloredStoneType']) {
-            const stoneType = configuration['coloredStoneType'] as string;
-            const stoneVariety = configuration['coloredStoneVariety'] as string;
-            selections.push({
-                questionId: 'coloredStoneSelection',
-                questionText: 'Colored Stone',
-                name: stoneVariety || stoneType,
-                imageUrl: '',
-                details: stoneVariety ? stoneType : ''
-            });
-        }
 
         if (data.ringSize) {
             selections.push({
@@ -350,9 +474,9 @@ export const Summary: React.FC<SummaryProps> = ({ configuration, onRestart, onEd
                 selections.push({
                     questionId: `hiddenStone_${id}`,
                     questionText: label,
-                    name: stoneType === 'diamond' ? 'Diamond' : stoneColor,
+                    name: id === 'alternating-stone-type' ? `Diamond and ${stoneColor}` : stoneType === 'diamond' ? ((configuration[`hiddenStoneDiamondShape_${id}`] ? `${configuration[`hiddenStoneDiamondShape_${id}`]} Diamond` : 'Diamond') as string) : stoneColor,
                     imageUrl: '',
-                    details: stoneType === 'colored-stone' ? 'Colored Stone (Birthstone)' : 'Natural/Lab Diamond'
+                    details: id === 'alternating-stone-type' ? 'Alternating Diamond and Colored Stone' : stoneType === 'colored-stone' ? 'Colored Stone (Birthstone)' : 'Natural/Lab Diamond'
                 });
             }
         });
@@ -375,12 +499,17 @@ export const Summary: React.FC<SummaryProps> = ({ configuration, onRestart, onEd
             // 1. Submit design to backend (always)
             const formDataToSend = new FormData();
 
+            // Combine address parts into single string for backend
+            const fullAddress = [data.address, data.city, data.state, data.zip].filter(Boolean).join(', ');
+
             // Append all non-file data as a JSON string
             formDataToSend.append('payload', JSON.stringify({
                 ...data,
+                address: fullAddress,
                 design: configuration,
                 selections: selections,
-                paymentMode: paymentMode
+                paymentMode: paymentMode,
+                turnstileToken: turnstileToken
             }));
 
             // Append files
@@ -434,11 +563,14 @@ export const Summary: React.FC<SummaryProps> = ({ configuration, onRestart, onEd
                 } else {
                     // 3. If inquiry, standard success
                     trackInquirySubmitted();
-                    setSubmitStatus({ success: true, message: 'Thank you! Your design has been submitted successfully. Check your email for a summary.' });
+                    if (typeof window !== 'undefined' && (window as any).fbq) (window as any).fbq('track', 'Lead');
+                    setSubmitStatus({ success: true, message: 'You\'re all set! Check your email for your portal link.' });
+                    setEstimateSubmitted(true);
                     setTimeout(() => {
                         setIsModalOpen(false);
+                        setIsEstimateModalOpen(false);
                         onRestart();
-                    }, 3000);
+                    }, 8000);
                 }
             } else {
                 setSubmitStatus({ success: false, message: result.message || 'Something went wrong. Please try again.' });
@@ -455,9 +587,10 @@ export const Summary: React.FC<SummaryProps> = ({ configuration, onRestart, onEd
         <div className="bg-white p-4 sm:p-6 md:p-8 rounded-xl shadow-sm border border-gray-200 animate-fade-in">
             <h3 className="text-2xl sm:text-3xl md:text-4xl font-bold text-center text-brand-dark mb-6 sm:mb-8">Your Right Ring</h3>
             <div className="space-y-4">
-                {allQuestionIds.map(questionId => {
+                {(() => { let cardIdx = 0; return allQuestionIds.map(questionId => {
                     const selection = configuration[questionId];
                     if (!selection) return null;
+                    const thisCardIdx = cardIdx++;
 
                     let details: { name: string; imageUrl: string; details?: string } = { name: '', imageUrl: '' };
 
@@ -486,19 +619,42 @@ export const Summary: React.FC<SummaryProps> = ({ configuration, onRestart, onEd
                             details = { name: 'Loading Diamond...', imageUrl: '' };
                         }
                     } else {
-                        if (questionId === 'stoneShape' && Array.isArray(selection)) {
-                            // Show only the diamond shapes, not 'colored-stone'
-                            const diamondShapes = selection.filter(s => s !== 'colored-stone');
-                            details = getSelectionDetails(questionId, diamondShapes.length > 0 ? diamondShapes : selection);
+                        if (questionId === 'stoneShape') {
+                            const stoneOpt = configuration['stoneOption'] as string | undefined;
+                            if (stoneOpt === 'colored-stone') {
+                                const shapeArr = Array.isArray(configuration['stoneShape']) ? configuration['stoneShape'] as string[] : (configuration['stoneShape'] ? [configuration['stoneShape'] as string] : []);
+                                const shapeId = shapeArr.find(s => s !== 'colored-stone' && s !== 'other' && s !== 'diamond');
+                                const shapeName = shapeId ? (getSelectionDetails('stoneShape', [shapeId]).name) : '';
+                                const stoneType = configuration['coloredStoneType'] as string || '';
+                                const stoneVariety = configuration['coloredStoneVariety'] as string || '';
+                                const stoneName = stoneVariety || stoneType;
+                                const displayName = shapeName && stoneName ? `${shapeName} shaped ${stoneName}` : stoneName || 'Colored Stone';
+                                details = { name: displayName, imageUrl: '' };
+                            } else if (stoneOpt === 'other') {
+                                details = { name: configuration['otherShapeText'] ? `Other: ${configuration['otherShapeText']}` : 'Other Diamond Shape', imageUrl: '' };
+                            } else {
+                                const shapeArr = Array.isArray(selection) ? (selection as string[]) : (selection ? [selection as string] : []);
+                                details = getSelectionDetails(questionId, shapeArr);
+                            }
                         } else {
                             details = getSelectionDetails(questionId, selection);
                         }
+                        if (questionId === 'features' && Array.isArray(selection) && selection.includes('woodgrain-vines')) {
+                            const wgChoice = configuration['woodgrainVinesChoice'] as string | undefined;
+                            const wgLabel = wgChoice === 'woodgrain' ? 'Woodgrain' : wgChoice === 'vines' ? 'Vines' : 'Woodgrain & Vines';
+                            details = { ...details, name: details.name.replace('Woodgrain and Vines', wgLabel) };
+                        }
                         if (questionId === 'baseRing' && typeof selection === 'string') {
                             details = { ...details, name: applyBaseRingVariant(details.name, configuration, selection) };
+                            if (selection === 'build-from-scratch' && files.length > 0) {
+                                details = { ...details, name: 'Build from scratch', details: `${files.length} inspiration photo${files.length > 1 ? 's' : ''} attached` };
+                            }
                         }
                     }
 
-                    const questionText = QUESTIONS.find(q => q.id === questionId)?.text.replace(/Step \d+: /, '') || 'Diamond';
+                    const questionText = questionId === 'stoneShape'
+                        ? 'Center Stone Shape'
+                        : (QUESTIONS.find(q => q.id === questionId)?.text.replace(/Step \d+: /, '') || 'Diamond');
 
                     const stepIndex = FORM_STEPS.findIndex(step =>
                         step.questionIds.includes(questionId) || (questionId === 'diamond' && step.component === 'DiamondSelector')
@@ -508,15 +664,25 @@ export const Summary: React.FC<SummaryProps> = ({ configuration, onRestart, onEd
 
                     const mainRow = (
                         <div
-                            onClick={() => stepIndex !== -1 && onEditStep(stepIndex)}
-                            className="flex items-center justify-between p-3 sm:p-4 bg-gray-50 rounded-lg border border-gray-200 cursor-pointer hover:border-brand hover:shadow-md transition-all duration-200"
+                            ref={(el: HTMLDivElement | null) => { cardRefs.current[thisCardIdx] = el; }}
+                            onClick={() => {
+                                if (questionId === 'budget') { onEditStep(featuresStepIndex, 'budget'); return; }
+                                if (questionId === 'stoneShape') {
+                                    const stoneOpt = configuration['stoneOption'] as string | undefined;
+                                    const overlay = stoneOpt === 'other' ? 'otherShape' : stoneOpt === 'colored-stone' ? 'coloredStone' : 'stoneShape';
+                                    stepIndex !== -1 && onEditStep(stepIndex, overlay);
+                                    return;
+                                }
+                                stepIndex !== -1 && onEditStep(stepIndex);
+                            }}
+                            className="flex items-center justify-between p-3 sm:p-4 bg-gray-50 rounded-lg border border-gray-200 cursor-pointer hover:border-brand hover:shadow-md transition-all duration-200 group"
                         >
-                            <div className="flex items-center space-x-3 sm:space-x-4 min-w-0">
+                            <div className="flex items-center space-x-3 sm:space-x-4 min-w-0 flex-1">
                                 {questionId === 'budget' ? (
                                     <BudgetIcon />
-                                ) : (questionId === 'stoneShape' && Array.isArray(selection) && selection.every(s => s === 'colored-stone')) ? (
+                                ) : (questionId === 'stoneShape' && configuration['stoneOption'] === 'colored-stone') ? (
                                     <ColoredStoneIcon />
-                                ) : (questionId === 'stoneShape' && (selection === 'other' || (Array.isArray(selection) && selection.includes('other') && !selection.some(s => s !== 'other' && s !== 'colored-stone')))) ? (
+                                ) : (questionId === 'stoneShape' && configuration['stoneOption'] === 'other') ? (
                                     <OtherDiamondIcon />
                                 ) : (questionId === 'diamond' && (selection === 'EXPERT_SELECTION' || selection === 'CUSTOMER_STONE')) ? (
                                     <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-md bg-brand-light flex items-center justify-center text-brand-dark shrink-0">
@@ -530,12 +696,27 @@ export const Summary: React.FC<SummaryProps> = ({ configuration, onRestart, onEd
                                             </svg>
                                         )}
                                     </div>
+                                ) : !details.imageUrl ? (
+                                    questionId === 'metalType' ? <MetalIcon /> :
+                                    questionId === 'stoneShape' ? <StoneShapeIcon /> :
+                                    questionId === 'ringSize' ? <RingSizeIcon /> :
+                                    <ColoredStoneIcon />
                                 ) : (
                                     <img
                                         src={details.imageUrl}
                                         alt={details.name}
+                                        width={64}
+                                        height={64}
+                                        loading="eager"
+                                        decoding="sync"
                                         className="w-12 h-12 sm:w-16 sm:h-16 rounded-md object-cover bg-gray-200 shrink-0"
-                                        onError={(e) => { (e.target as HTMLImageElement).src = 'https://via.placeholder.com/150?text=No+Image'; }}
+                                        onError={(e) => {
+                                            const el = e.target as HTMLImageElement;
+                                            el.style.display = 'none';
+                                            const icon = document.createElement('div');
+                                            icon.className = 'w-12 h-12 sm:w-16 sm:h-16 rounded-md bg-brand-light shrink-0';
+                                            el.parentNode?.insertBefore(icon, el);
+                                        }}
                                     />
                                 )}
                                 <div className="min-w-0">
@@ -544,33 +725,11 @@ export const Summary: React.FC<SummaryProps> = ({ configuration, onRestart, onEd
                                     {details.details && <p className="text-[10px] sm:text-xs text-gray-500">{details.details}</p>}
                                 </div>
                             </div>
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 text-gray-300 group-hover:text-brand shrink-0 ml-2 transition-colors">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Z" />
+                            </svg>
                         </div>
                     );
-
-                    const stoneShapeArr = Array.isArray(selection) ? selection : (selection ? [selection as string] : []);
-                    if (questionId === 'stoneShape' && stoneShapeArr.includes('colored-stone') && configuration['coloredStoneType']) {
-                        const stoneType = configuration['coloredStoneType'] as string;
-                        const stoneVariety = configuration['coloredStoneVariety'] as string;
-                        const stoneStepIndex = stepIndex;
-                        return (
-                            <React.Fragment key={questionId}>
-                                {mainRow}
-                                <div
-                                    onClick={() => stoneStepIndex !== -1 && onEditStep(stoneStepIndex)}
-                                    className="flex items-center justify-between p-3 sm:p-4 bg-gray-50 rounded-lg border border-gray-200 cursor-pointer hover:border-brand hover:shadow-md transition-all duration-200"
-                                >
-                                    <div className="flex items-center space-x-3 sm:space-x-4 min-w-0">
-                                        <ColoredStoneIcon />
-                                        <div className="min-w-0">
-                                            <p className="text-xs sm:text-sm text-gray-500 font-semibold">Colored Stone Selection</p>
-                                            <p className="font-bold text-sm sm:text-lg text-[#232429]">{stoneVariety || stoneType}</p>
-                                            {stoneVariety && <p className="text-[10px] sm:text-xs text-gray-500">{stoneType}</p>}
-                                        </div>
-                                    </div>
-                                </div>
-                            </React.Fragment>
-                        );
-                    }
 
                     if (questionId !== 'features') return <React.Fragment key={questionId}>{mainRow}</React.Fragment>;
 
@@ -580,10 +739,10 @@ export const Summary: React.FC<SummaryProps> = ({ configuration, onRestart, onEd
                             {mainRow}
 
                             {configuration['engravingText'] && (
-                                <div className="flex items-center justify-between p-3 sm:p-4 bg-gray-50 rounded-lg border border-gray-200 cursor-pointer hover:border-brand hover:shadow-md transition-all duration-200"
+                                <div className="flex items-center justify-between p-3 sm:p-4 bg-gray-50 rounded-lg border border-gray-200 cursor-pointer hover:border-brand hover:shadow-md transition-all duration-200 group"
                                     onClick={() => onEditStep(featuresStepIndex, 'written-engraving')}
                                 >
-                                    <div className="flex items-center space-x-3 sm:space-x-4 min-w-0">
+                                    <div className="flex items-center space-x-3 sm:space-x-4 min-w-0 flex-1">
                                         <EngravingIcon />
                                         <div className="min-w-0">
                                             <p className="text-xs sm:text-sm text-gray-500 font-semibold">Written Engraving</p>
@@ -593,6 +752,7 @@ export const Summary: React.FC<SummaryProps> = ({ configuration, onRestart, onEd
                                             <p className="text-[10px] sm:text-xs text-gray-500">Font: {configuration['engravingFont'] as string || 'Arial'}</p>
                                         </div>
                                     </div>
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 text-gray-300 group-hover:text-brand shrink-0 ml-2 transition-colors"><path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Z" /></svg>
                                 </div>
                             )}
 
@@ -600,14 +760,16 @@ export const Summary: React.FC<SummaryProps> = ({ configuration, onRestart, onEd
                                 const stoneType = configuration[`hiddenStoneType_${id}`] as string;
                                 if (!stoneType) return null;
                                 const stoneColor = configuration[`hiddenStoneColor_${id}`] as string;
+                                const diamondShape = configuration[`hiddenStoneDiamondShape_${id}`] as string | undefined;
                                 const color = stoneType === 'colored-stone' ? BIRTHSTONE_COLORS[stoneColor] : undefined;
+                                const diamondLabel = diamondShape ? `${diamondShape} Diamond` : 'Diamond';
                                 return (
                                     <div
                                         key={id}
                                         onClick={() => onEditStep(featuresStepIndex, id)}
-                                        className="flex items-center justify-between p-3 sm:p-4 bg-gray-50 rounded-lg border border-gray-200 cursor-pointer hover:border-brand hover:shadow-md transition-all duration-200"
+                                        className="flex items-center justify-between p-3 sm:p-4 bg-gray-50 rounded-lg border border-gray-200 cursor-pointer hover:border-brand hover:shadow-md transition-all duration-200 group"
                                     >
-                                        <div className="flex items-center space-x-3 sm:space-x-4 min-w-0">
+                                        <div className="flex items-center space-x-3 sm:space-x-4 min-w-0 flex-1">
                                             <HiddenStoneIcon color={color} />
                                             <div className="min-w-0">
                                                 <p className="text-xs sm:text-sm text-gray-500 font-semibold">{label}</p>
@@ -615,11 +777,12 @@ export const Summary: React.FC<SummaryProps> = ({ configuration, onRestart, onEd
                                                     {stoneType === 'colored-stone' && (
                                                         <span className="inline-block w-3 h-3 rounded-full shrink-0 border border-gray-300" style={{ backgroundColor: color }} />
                                                     )}
-                                                    {stoneType === 'diamond' ? 'Diamond' : stoneColor}
+                                                    {id === 'alternating-stone-type' ? `Diamond and ${stoneColor}` : stoneType === 'diamond' ? diamondLabel : stoneColor}
                                                 </p>
-                                                <p className="text-[10px] sm:text-xs text-gray-500">{stoneType === 'colored-stone' ? 'Colored Stone (Birthstone)' : 'Natural/Lab Diamond'}</p>
+                                                <p className="text-[10px] sm:text-xs text-gray-500">{id === 'alternating-stone-type' ? 'Alternating Diamond and Colored Stone' : stoneType === 'colored-stone' ? 'Colored Stone (Birthstone)' : 'Natural/Lab Diamond'}</p>
                                             </div>
                                         </div>
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 text-gray-300 group-hover:text-brand shrink-0 ml-2 transition-colors"><path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Z" /></svg>
                                     </div>
                                 );
                             })}
@@ -629,9 +792,9 @@ export const Summary: React.FC<SummaryProps> = ({ configuration, onRestart, onEd
                                 return (
                                     <div
                                         onClick={() => onEditStep(featuresStepIndex, 'woodgrain-vines')}
-                                        className="flex items-center justify-between p-3 sm:p-4 bg-gray-50 rounded-lg border border-gray-200 cursor-pointer hover:border-brand hover:shadow-md transition-all duration-200"
+                                        className="flex items-center justify-between p-3 sm:p-4 bg-gray-50 rounded-lg border border-gray-200 cursor-pointer hover:border-brand hover:shadow-md transition-all duration-200 group"
                                     >
-                                        <div className="flex items-center space-x-3 sm:space-x-4 min-w-0">
+                                        <div className="flex items-center space-x-3 sm:space-x-4 min-w-0 flex-1">
                                             <EngravingIcon />
                                             <div className="min-w-0">
                                                 <p className="text-xs sm:text-sm text-gray-500 font-semibold">Woodgrain and Vines</p>
@@ -641,23 +804,322 @@ export const Summary: React.FC<SummaryProps> = ({ configuration, onRestart, onEd
                                                 <p className="text-[10px] sm:text-xs text-gray-500">{choice === 'woodgrain' ? '$500' : choice === 'vines' ? '$300' : '$800'}</p>
                                             </div>
                                         </div>
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 text-gray-300 group-hover:text-brand shrink-0 ml-2 transition-colors"><path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Z" /></svg>
                                     </div>
                                 );
                             })()}
                         </React.Fragment>
                     );
-                })}
+                }); })()}
             </div>
-            <div className="mt-8 text-center">
+            {/* Desktop CTA */}
+            <div className="mt-10 pt-8 text-center hidden sm:block border-t border-gray-200">
                 <button
-                    onClick={() => setIsModalOpen(true)}
+                    onClick={() => { if (typeof window !== 'undefined' && (window as any).fbq) (window as any).fbq('track', 'InitiateCheckout'); setEstimateSubmitted(false); setSubmitStatus(null); setIsEstimateModalOpen(true); }}
                     className="px-8 py-3 bg-brand text-white font-bold rounded-lg shadow-md hover:bg-brand-dark focus:outline-none focus:ring-2 focus:ring-brand focus:ring-opacity-75 transition-all duration-300 transform hover:scale-105"
                 >
-                    Submit Your Design
+                    Receive My Free Estimate
                 </button>
+                <div className="mt-3">
+                    <button
+                        onClick={openDesignPanel}
+                        className="px-6 py-2 border border-brand text-brand font-semibold rounded-lg hover:bg-brand/5 transition-all duration-200 text-sm"
+                    >
+                        💾 Save My Design
+                    </button>
+                </div>
+                <p className="mt-3 text-xs text-gray-400">Thousands of couples have designed their ring with us — no commitment, no pressure.</p>
             </div>
 
-            {/* Submission Modal */}
+            {/* Mobile sticky CTA */}
+            <div className="sm:hidden fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-gray-200 px-4 py-3 shadow-[0_-4px_12px_rgba(0,0,0,0.08)]" style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}>
+                <button
+                    onClick={() => { if (typeof window !== 'undefined' && (window as any).fbq) (window as any).fbq('track', 'InitiateCheckout'); setEstimateSubmitted(false); setSubmitStatus(null); setIsEstimateModalOpen(true); }}
+                    className="w-full py-3.5 bg-brand text-white font-bold rounded-lg shadow-md hover:bg-brand-dark focus:outline-none transition-all"
+                >
+                    Receive My Free Estimate
+                </button>
+                <button
+                    onClick={openDesignPanel}
+                    className="w-full mt-2 py-2.5 border border-brand text-brand font-semibold rounded-lg hover:bg-brand/5 transition-all text-sm"
+                >
+                    💾 Save My Design
+                </button>
+            </div>
+            {/* Spacer so content isn't hidden behind sticky bar on mobile */}
+            <div className="sm:hidden h-36" />
+
+            {/* My Ring Design Panel */}
+            {designPanelOpen && (
+                <>
+                    {/* Backdrop */}
+                    <div
+                        className="fixed inset-0 bg-black/40 z-[79]"
+                        onClick={() => setDesignPanelOpen(false)}
+                    />
+                    {/* Desktop: right drawer */}
+                    <div
+                        ref={panelRef}
+                        className="hidden sm:flex fixed top-0 right-0 h-full w-96 bg-white shadow-2xl z-[80] flex-col"
+                        style={{ animation: 'slideInRight 0.3s ease-out' }}
+                    >
+                        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
+                            <h2 className="text-lg font-bold text-brand-dark">💍 My Ring Design</h2>
+                            <button onClick={() => setDesignPanelOpen(false)} className="text-gray-400 hover:text-gray-600">
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                        </div>
+                        <p className="px-6 py-3 text-xs text-gray-500 border-b border-gray-100 flex items-center gap-1.5">
+                            <svg className="w-3.5 h-3.5 text-green-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
+                            Auto-saved to this device — your choices are here when you return
+                        </p>
+                        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
+                            {(() => { let panelIdx = 0; return allQuestionIds.map(questionId => {
+                                const sel = configuration[questionId];
+                                if (!sel) return null;
+                                const qText = questionId === 'stoneShape' ? 'Center Stone Shape' : (QUESTIONS.find(q => q.id === questionId)?.text.replace(/Step \d+: /, '') || 'Diamond');
+                                let selName = '';
+                                if (questionId === 'diamond') {
+                                    if (sel === 'EXPERT_SELECTION') selName = 'Expert Selection';
+                                    else if (sel === 'CUSTOMER_STONE') selName = 'Own Stone';
+                                    else if (selectedDiamond) selName = `${parseFloat(selectedDiamond.Weight).toFixed(2)} ct ${selectedDiamond.Shape}`;
+                                } else if (questionId === 'features' && Array.isArray(sel)) {
+                                    const names = (sel as string[]).map(id => {
+                                        const opt = QUESTIONS.find(q => q.id === 'features')?.options?.find((o: {id: string}) => o.id === id);
+                                        return opt?.name || id;
+                                    }).filter(Boolean);
+                                    const visible = names.slice(0, 2);
+                                    const extra = names.length - 2;
+                                    selName = visible.join(', ') + (extra > 0 ? ` +${extra} more` : '');
+                                } else {
+                                    const opt = QUESTIONS.find(q => q.id === questionId)?.options?.find((o: {id: string}) => o.id === sel || (Array.isArray(sel) && sel.includes(o.id)));
+                                    selName = opt?.name || (Array.isArray(sel) ? (sel as string[]).join(', ') : String(sel));
+                                }
+                                if (!selName) return null;
+                                const rowDelay = panelIdx++ * 100 + 150;
+                                return (
+                                    <div key={questionId} className="flex justify-between items-center py-2 border-b border-gray-50"
+                                        style={{ animation: `fadeInRow 0.35s ease-out ${rowDelay}ms both` }}>
+                                        <span className="text-xs text-gray-400 font-medium">{qText}</span>
+                                        <span className="text-sm font-semibold text-[#232429] text-right ml-4 max-w-[55%]">{selName}</span>
+                                    </div>
+                                );
+                            }); })()}
+                        </div>
+                        <div className="px-6 py-5 border-t border-gray-100 space-y-3">
+                            <button
+                                onClick={() => {
+                                    const encoded = btoa(JSON.stringify(configuration));
+                                    const url = `${window.location.origin}/?design=${encoded}`;
+                                    navigator.clipboard.writeText(url).then(() => { setLinkCopied(true); setTimeout(() => setLinkCopied(false), 2000); });
+                                }}
+                                className="w-full py-2.5 border border-brand text-brand font-semibold rounded-lg hover:bg-brand/5 transition-all text-sm"
+                            >
+                                {linkCopied ? '✓ Link Copied!' : '🔗 Share with a Partner'}
+                            </button>
+                            <div>
+                                <button
+                                    onClick={() => { setDesignPanelOpen(false); if (typeof window !== 'undefined' && (window as any).fbq) (window as any).fbq('track', 'InitiateCheckout'); setEstimateSubmitted(false); setSubmitStatus(null); setIsEstimateModalOpen(true); }}
+                                    className="w-full py-3 bg-brand text-white font-bold rounded-lg hover:bg-brand-dark transition-all text-sm"
+                                >
+                                    Request My Free Estimate →
+                                </button>
+                                <p className="text-center text-[10px] text-gray-400 mt-1.5">No commitment — we'll email you a price breakdown.</p>
+                            </div>
+                        </div>
+                    </div>
+                    {/* Mobile: bottom sheet */}
+                    <div
+                        ref={panelRef}
+                        className="sm:hidden fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl z-[80] flex flex-col"
+                        style={{ height: '80vh', animation: 'slideInUp 0.3s ease-out' }}
+                    >
+                        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+                            <h2 className="text-base font-bold text-brand-dark">💍 My Ring Design</h2>
+                            <button onClick={() => setDesignPanelOpen(false)} className="text-gray-400 hover:text-gray-600">
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                        </div>
+                        <p className="px-5 py-2 text-xs text-gray-500 border-b border-gray-100 flex items-center gap-1.5">
+                            <svg className="w-3.5 h-3.5 text-green-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
+                            Auto-saved to this device — your choices are here when you return
+                        </p>
+                        <div className="flex-1 overflow-y-auto px-5 py-3 space-y-2">
+                            {(() => { let panelIdx = 0; return allQuestionIds.map(questionId => {
+                                const sel = configuration[questionId];
+                                if (!sel) return null;
+                                const qText = questionId === 'stoneShape' ? 'Center Stone Shape' : (QUESTIONS.find(q => q.id === questionId)?.text.replace(/Step \d+: /, '') || 'Diamond');
+                                let selName = '';
+                                if (questionId === 'diamond') {
+                                    if (sel === 'EXPERT_SELECTION') selName = 'Expert Selection';
+                                    else if (sel === 'CUSTOMER_STONE') selName = 'Own Stone';
+                                    else if (selectedDiamond) selName = `${parseFloat(selectedDiamond.Weight).toFixed(2)} ct ${selectedDiamond.Shape}`;
+                                } else if (questionId === 'features' && Array.isArray(sel)) {
+                                    const names = (sel as string[]).map(id => {
+                                        const opt = QUESTIONS.find(q => q.id === 'features')?.options?.find((o: {id: string}) => o.id === id);
+                                        return opt?.name || id;
+                                    }).filter(Boolean);
+                                    const visible = names.slice(0, 2);
+                                    const extra = names.length - 2;
+                                    selName = visible.join(', ') + (extra > 0 ? ` +${extra} more` : '');
+                                } else {
+                                    const opt = QUESTIONS.find(q => q.id === questionId)?.options?.find((o: {id: string}) => o.id === sel || (Array.isArray(sel) && sel.includes(o.id)));
+                                    selName = opt?.name || (Array.isArray(sel) ? (sel as string[]).join(', ') : String(sel));
+                                }
+                                if (!selName) return null;
+                                const rowDelay = panelIdx++ * 100 + 150;
+                                return (
+                                    <div key={questionId} className="flex justify-between items-center py-2 border-b border-gray-50"
+                                        style={{ animation: `fadeInRow 0.35s ease-out ${rowDelay}ms both` }}>
+                                        <span className="text-xs text-gray-400 font-medium">{qText}</span>
+                                        <span className="text-sm font-semibold text-[#232429] text-right ml-4 max-w-[55%]">{selName}</span>
+                                    </div>
+                                );
+                            }); })()}
+                        </div>
+                        <div className="px-5 py-4 border-t border-gray-100 space-y-3" style={{ paddingBottom: 'max(16px, env(safe-area-inset-bottom))' }}>
+                            <button
+                                onClick={() => {
+                                    const encoded = btoa(JSON.stringify(configuration));
+                                    const url = `${window.location.origin}/?design=${encoded}`;
+                                    navigator.clipboard.writeText(url).then(() => { setLinkCopied(true); setTimeout(() => setLinkCopied(false), 2000); });
+                                }}
+                                className="w-full py-2.5 border border-brand text-brand font-semibold rounded-lg hover:bg-brand/5 transition-all text-sm"
+                            >
+                                {linkCopied ? '✓ Link Copied!' : '🔗 Share with a Partner'}
+                            </button>
+                            <div>
+                                <button
+                                    onClick={() => { setDesignPanelOpen(false); if (typeof window !== 'undefined' && (window as any).fbq) (window as any).fbq('track', 'InitiateCheckout'); setEstimateSubmitted(false); setSubmitStatus(null); setIsEstimateModalOpen(true); }}
+                                    className="w-full py-3 bg-brand text-white font-bold rounded-lg hover:bg-brand-dark transition-all text-sm"
+                                >
+                                    Request My Free Estimate →
+                                </button>
+                                <p className="text-center text-[10px] text-gray-400 mt-1.5">No commitment — we'll email you a price breakdown.</p>
+                            </div>
+                        </div>
+                    </div>
+                </>
+            )}
+
+            {/* Estimate Modal — lightweight, name + email only */}
+            {isEstimateModalOpen && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 z-[60] flex justify-center items-start sm:items-center px-5 overflow-y-auto py-8 sm:py-0">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-md relative animate-fade-in-up p-6 my-auto sm:my-0">
+                        <button
+                            onClick={() => setIsEstimateModalOpen(false)}
+                            className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
+                        >
+                            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+
+                        {estimateSubmitted ? (
+                            <div className="text-center py-4">
+                                <div className="text-4xl mb-4">💍</div>
+                                <h3 className="text-xl font-bold text-brand-dark mb-2">You're all set!</h3>
+                                <p className="text-gray-600 text-sm mb-6">Check your email for your portal link. We'll have your estimate ready shortly.</p>
+                                <div className="border-t border-gray-100 pt-5">
+                                    <p className="text-xs text-gray-400 mb-3">Want to move forward with your ring?</p>
+                                    <button
+                                        onClick={() => { setIsEstimateModalOpen(false); setSubmitStatus(null); setIsModalOpen(true); }}
+                                        className="text-brand font-semibold text-sm hover:text-brand-dark transition-colors"
+                                    >
+                                        Ready to move forward? Place a $250 deposit to begin your 3D model →
+                                    </button>
+                                    <p className="text-xs text-gray-400 text-center mt-1">No design is locked in — revisions are always included.</p>
+                                </div>
+                            </div>
+                        ) : (
+                            <>
+                                <h3 className="text-2xl font-bold text-center mb-1">Receive My Free Estimate</h3>
+                                <p className="text-sm text-gray-500 text-center mb-6">Matt, our jewelry professional and CAD designer, will reach out to you with an estimate and personalized suggestions for your ring.</p>
+
+                                {submitStatus && !submitStatus.success && (
+                                    <div className="mb-4 p-3 rounded text-sm bg-red-100 text-red-700">
+                                        {submitStatus.message}
+                                    </div>
+                                )}
+
+                                <form className="space-y-4" onSubmit={(e) => e.preventDefault()}>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+                                        <input
+                                            type="text"
+                                            name="name"
+                                            autoComplete="name"
+                                            required
+                                            value={formData.name}
+                                            onChange={handleInputChange}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-brand text-base"
+                                            placeholder="John Doe"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
+                                        <input
+                                            type="email"
+                                            name="email"
+                                            autoComplete="email"
+                                            required
+                                            value={formData.email}
+                                            onChange={handleInputChange}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-brand text-base"
+                                            placeholder="john@example.com"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Ring Size <span className="text-gray-400 font-normal">(optional)</span></label>
+                                        <select
+                                            name="ringSize"
+                                            value={formData.ringSize}
+                                            onChange={handleInputChange}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-brand bg-white text-base"
+                                        >
+                                            <option value="">Select a ring size (if known)</option>
+                                            <option value="I don't know the ring size yet">I don't know yet</option>
+                                            {(() => {
+                                                const sizes = [];
+                                                for (let s = 3; s <= 13; s += 0.5) {
+                                                    sizes.push(<option key={s} value={String(s)}>{s}</option>);
+                                                }
+                                                return sizes;
+                                            })()}
+                                        </select>
+                                    </div>
+                                    <div ref={turnstileRef} className="flex justify-center" />
+                                    <button
+                                        type="button"
+                                        onClick={() => handleSubmit('inquiry')}
+                                        disabled={isSubmitting || isDiamondLoading || !formData.name || !formData.email || !turnstileToken}
+                                        className="w-full py-3 bg-brand text-white font-bold rounded-lg shadow-md hover:bg-brand-dark focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed transition-all transform hover:scale-[1.02] flex items-center justify-center gap-2"
+                                    >
+                                        {isSubmitting ? (
+                                            <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                            </svg>
+                                        ) : 'Receive a Free Estimate'}
+                                    </button>
+                                    <div className="text-center pt-1">
+                                        <button
+                                            type="button"
+                                            onClick={() => { setIsEstimateModalOpen(false); setSubmitStatus(null); setIsModalOpen(true); }}
+                                            className="text-sm text-gray-400 hover:text-brand transition-colors"
+                                        >
+                                            Ready to move forward? Place a $250 deposit to begin your 3D model →
+                                        </button>
+                                        <p className="text-xs text-gray-400 text-center mt-1">No design is locked in — revisions are always included.</p>
+                                    </div>
+                                </form>
+                            </>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* Deposit Modal — full form */}
             {isModalOpen && (
                 <div className="fixed inset-0 bg-black bg-opacity-50 z-[60] flex justify-center items-start overflow-hidden">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg relative animate-fade-in-up my-6 mx-5 sm:mx-8 overflow-y-auto overscroll-contain" style={{WebkitOverflowScrolling: 'touch', maxHeight: 'calc(100dvh - 3rem)'}}><div className="p-6 pb-16 sm:pb-6">
@@ -669,8 +1131,14 @@ export const Summary: React.FC<SummaryProps> = ({ configuration, onRestart, onEd
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                             </svg>
                         </button>
+                        <button
+                            onClick={() => { setIsModalOpen(false); setIsEstimateModalOpen(true); }}
+                            className="absolute top-4 left-4 text-gray-400 hover:text-gray-600 text-sm flex items-center gap-1"
+                        >
+                            ← Back
+                        </button>
 
-                        <h3 className="text-2xl font-bold text-center mb-6">Finalize Your Design</h3>
+                        <h3 className="text-2xl font-bold text-center mb-6">Place a $250 Deposit</h3>
 
                         {submitStatus && (
                             <div className={`mb-4 p-3 rounded text-sm ${submitStatus.success ? 'bg-brand-light text-brand-dark' : 'bg-red-100 text-red-700'}`}>
@@ -720,7 +1188,7 @@ export const Summary: React.FC<SummaryProps> = ({ configuration, onRestart, onEd
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Street Address</label>
                                     <input
                                         type="text"
                                         name="address"
@@ -729,8 +1197,51 @@ export const Summary: React.FC<SummaryProps> = ({ configuration, onRestart, onEd
                                         value={formData.address}
                                         onChange={handleInputChange}
                                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-brand text-base"
-                                        placeholder="123 Main St, City, State, ZIP"
+                                        placeholder="123 Main St, Apt 4B"
                                     />
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="col-span-2 sm:col-span-1">
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">City</label>
+                                        <input
+                                            type="text"
+                                            name="city"
+                                            autoComplete="address-level2"
+                                            required
+                                            value={formData.city}
+                                            onChange={handleInputChange}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-brand text-base"
+                                            placeholder="Boston"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">State</label>
+                                        <input
+                                            type="text"
+                                            name="state"
+                                            autoComplete="address-level1"
+                                            required
+                                            value={formData.state}
+                                            onChange={handleInputChange}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-brand text-base"
+                                            placeholder="MA"
+                                            maxLength={2}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">ZIP Code</label>
+                                        <input
+                                            type="text"
+                                            name="zip"
+                                            autoComplete="postal-code"
+                                            required
+                                            value={formData.zip}
+                                            onChange={handleInputChange}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-brand text-base"
+                                            placeholder="02101"
+                                            maxLength={10}
+                                        />
+                                    </div>
                                 </div>
                                 <p className="text-sm text-gray-500 italic text-center">(nothing will be sent without your approval)</p>
                                 <div>
@@ -825,19 +1336,16 @@ export const Summary: React.FC<SummaryProps> = ({ configuration, onRestart, onEd
                                 </div>
 
                                 <div className="mt-6 pt-6 border-t border-gray-200">
-                                    <h4 className="font-semibold text-lg text-gray-900 mb-2">Design Deposit</h4>
+                                    <h4 className="font-semibold text-lg text-gray-900 mb-2">$250 Design Deposit</h4>
                                     <p className="text-sm text-gray-600 mb-4">
-                                        A <strong>$500 deposit</strong> is required to begin the custom design process for your unique ring. This standard deposit ensures our designers can prioritize your vision. In the rare case of a cancellation the design fee portion ($250) is non-refundable. The deposit payment goes toward your final payment. Let us bring your design to life!
-                                    </p>
-                                    <p className="text-sm text-gray-500 mb-6 italic">
-                                        Note: If you prefer to submit an inquiry without a deposit, our team will contact you to discuss your ideas; however, design work will not commence until the deposit is received.
+                                        A <strong>$250 non-refundable deposit</strong> kicks off the custom design process and is applied toward your final ring price. Once received, we'll begin work on your 3D interactive model. Your deposit simply starts the process — no design is locked in. We'll work with you through every revision until it's exactly right.
                                     </p>
 
                                     <div className="flex flex-col gap-3">
                                         <button
                                             type="button"
                                             onClick={() => handleSubmit('deposit')}
-                                            disabled={isSubmitting || !formData.name || !formData.email || !formData.phone}
+                                            disabled={isSubmitting || isDiamondLoading || !formData.name || !formData.email || !formData.phone || !formData.city || !formData.state || !formData.zip}
                                             className="w-full py-4 bg-brand-dark text-white font-extrabold text-lg rounded-xl shadow-lg hover:bg-brand focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed transition-all transform hover:scale-[1.02] flex items-center justify-center gap-2 ring-2 ring-brand ring-offset-2"
                                         >
                                             {isSubmitting ? (
@@ -847,7 +1355,7 @@ export const Summary: React.FC<SummaryProps> = ({ configuration, onRestart, onEd
                                                 </svg>
                                             ) : (
                                                 <>
-                                                    <span>Submit & Pay $500 Deposit</span>
+                                                    <span>Submit & Pay $250 Deposit</span>
                                                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6">
                                                         <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
                                                     </svg>
@@ -856,14 +1364,6 @@ export const Summary: React.FC<SummaryProps> = ({ configuration, onRestart, onEd
                                             )}
                                         </button>
 
-                                        <button
-                                            type="button"
-                                            onClick={() => handleSubmit('inquiry')}
-                                            disabled={isSubmitting || !formData.name || !formData.email || !formData.phone}
-                                            className="w-full py-2 bg-transparent text-gray-400 text-sm font-medium hover:text-gray-600 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                                        >
-                                            Submit Inquiry Only (No Deposit)
-                                        </button>
                                     </div>
                                 </div>
                             </form>
