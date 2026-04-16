@@ -1,53 +1,66 @@
+# ── Stage 1: Build ────────────────────────────────────────────────────────────
+FROM node:20-slim AS node-builder
+WORKDIR /build
+# Copy only what's needed for the JS build
+COPY package*.json ./
+RUN npm ci --include=dev
+COPY . .
+RUN npm run build
+# dist/ is now populated with compiled assets + PHP files
+
+# ── Stage 2: PHP deps ─────────────────────────────────────────────────────────
+FROM composer:2 AS composer-builder
+WORKDIR /build
+COPY composer.json composer.lock* ./
+RUN composer install --no-dev --optimize-autoloader --no-scripts
+
+# ── Stage 3: Runtime ──────────────────────────────────────────────────────────
 FROM php:8.3-fpm
 
-# Install system dependencies
 RUN apt-get update && apt-get install -y \
     nginx \
     nodejs \
     npm \
-    unzip \
-    curl \
-    git \
     cron \
     libzip-dev \
     libicu-dev \
+    unzip \
     && rm -rf /var/lib/apt/lists/*
 
-# Install PHP extensions
 RUN docker-php-ext-install zip intl opcache
 
-# Install Composer
-COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
-
-WORKDIR /app
-
-# Copy entire project
-COPY . .
-
-# Install Node deps and build frontend (vite build + copies PHP files into dist/)
-RUN npm ci
-RUN npm run build
-
-# Install PHP Composer deps
-RUN composer install --no-dev --optimize-autoloader
-
-# Create empty .env so phpdotenv doesn't throw (Railway injects real env vars at runtime)
-RUN touch /app/.env
-
-# PHP upload and runtime config
+# PHP config
 RUN echo "upload_max_filesize = 100M" >> /usr/local/etc/php/conf.d/uploads.ini \
     && echo "post_max_size = 105M" >> /usr/local/etc/php/conf.d/uploads.ini \
     && echo "memory_limit = 256M" >> /usr/local/etc/php/conf.d/uploads.ini
 
-# Fix permissions
-RUN chown -R www-data:www-data /app
+WORKDIR /app
 
-# Nginx config
+# Copy built frontend from node-builder (only dist/ — no node_modules)
+COPY --from=node-builder /build/dist ./dist
+
+# Copy PHP vendor from composer-builder (only vendor/ — no source)
+COPY --from=composer-builder /build/vendor ./vendor
+
+# Copy runtime files needed by PHP (scripts for cron, portal-lib, Portal creds dir)
+COPY scripts/ ./scripts/
+COPY portal-lib/ ./portal-lib/
+COPY Portal/ ./Portal/
+COPY composer.json ./
+
+# Create empty .env (phpdotenv won't throw; Railway injects real env vars)
+RUN touch /app/.env
+
+# Node modules needed only for the cron diamond fetch script
+COPY package*.json ./
+RUN npm ci --omit=dev --ignore-scripts
+
+# Nginx + startup
 COPY docker/nginx.conf /etc/nginx/nginx.conf
-
-# Startup script
 COPY docker/start.sh /start.sh
 RUN chmod +x /start.sh
+
+RUN chown -R www-data:www-data /app
 
 EXPOSE 8080
 CMD ["/start.sh"]
