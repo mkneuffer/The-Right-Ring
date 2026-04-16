@@ -50,6 +50,11 @@ COPY composer.json ./
 # Portal/google-credentials.json is written at runtime from GOOGLE_CREDENTIALS_JSON env var in start.sh
 RUN mkdir -p /app/Portal
 
+# Seed diamond data: staged inside the image at /app/seed-data, copied into
+# the /app/public/data volume on first boot by start.sh. Kept separate so the
+# volume mount doesn't mask it.
+COPY public/data/ /app/seed-data/
+
 # Create empty .env (phpdotenv won't throw; Railway injects real env vars)
 RUN touch /app/.env
 

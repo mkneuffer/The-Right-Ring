@@ -1,7 +1,6 @@
 node_modules/
 dist/
 vendor/
-public/data/
 .git/
 *.log
 .env
