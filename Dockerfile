@@ -3,8 +3,7 @@ FROM node:20-slim AS node-builder
 WORKDIR /build
 COPY package*.json ./
 # Install all deps for the build, then prune to prod-only for the runtime copy
-RUN --mount=type=cache,id=npm,target=/root/.npm \
-    npm ci --include=dev
+RUN npm ci --include=dev
 COPY . .
 RUN npm run build \
  && npm prune --omit=dev --ignore-scripts
@@ -14,22 +13,19 @@ RUN npm run build \
 FROM composer:2 AS composer-builder
 WORKDIR /build
 COPY composer.json composer.lock* ./
-RUN --mount=type=cache,id=composer,target=/tmp/cache \
-    composer install --no-dev --optimize-autoloader --no-scripts
+RUN composer install --no-dev --optimize-autoloader --no-scripts
 
 # ── Stage 3: Runtime ──────────────────────────────────────────────────────────
 FROM php:8.3-fpm
 
 # Install system deps — nodejs/npm removed; we copy the binary from node-builder
-RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,id=apt-lib,target=/var/lib/apt,sharing=locked \
-    rm -f /etc/apt/apt.conf.d/docker-clean \
-    && apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     nginx \
     cron \
     libzip-dev \
     libpq-dev \
-    unzip
+    unzip \
+    && rm -rf /var/lib/apt/lists/*
 
 # Only the extensions actually used: zip (composer), opcache (perf), pdo_pgsql (DB)
 RUN docker-php-ext-install zip opcache pdo_pgsql
