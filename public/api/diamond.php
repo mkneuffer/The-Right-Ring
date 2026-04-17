@@ -15,21 +15,30 @@ if ($id === '') {
     exit;
 }
 
-$dsn = getenv('DATABASE_URL');
-if (!$dsn) {
+$rawDsn = getenv('DATABASE_URL');
+if (!$rawDsn) {
     http_response_code(503);
     echo json_encode(['error' => 'Database not configured']);
     exit;
 }
 
+$parsed = parse_url($rawDsn);
+$dsn    = sprintf('pgsql:host=%s;port=%d;dbname=%s',
+    $parsed['host'],
+    $parsed['port'] ?? 5432,
+    ltrim($parsed['path'] ?? '', '/')
+);
+$dbUser = $parsed['user'] ?? null;
+$dbPass = $parsed['pass'] ?? null;
+
 try {
-    $pdo = new PDO($dsn, null, null, [
+    $pdo = new PDO($dsn, $dbUser, $dbPass, [
         PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
     ]);
 } catch (PDOException $e) {
     http_response_code(503);
-    echo json_encode(['error' => 'Database connection failed']);
+    echo json_encode(['error' => 'Database connection failed: ' . $e->getMessage()]);
     exit;
 }
 
